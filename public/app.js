@@ -72,60 +72,132 @@ var BookmarkCowboy;
 })(BookmarkCowboy || (BookmarkCowboy = {}));
 var BookmarkCowboy;
 (function (BookmarkCowboy) {
-    function getPreviousElementSibling(node) {
-        let current = node.previousElementSibling;
-        while (current && current.tagName === "P") {
-            current = current.previousElementSibling;
-        }
-        return current;
+    function normalizeFolderName(value) {
+        return value.replace(/\s+/g, " ").trim();
     }
-    function getParentDl(node) {
-        let current = node;
-        while (current) {
-            if (current.tagName === "DL") {
-                return current;
+    function getAttributeCaseInsensitive(element, name) {
+        const directValue = element.getAttribute(name);
+        if (directValue !== null) {
+            return directValue;
+        }
+        const lookup = name.toLowerCase();
+        for (const attribute of Array.from(element.attributes)) {
+            if (attribute.name.toLowerCase() === lookup) {
+                return attribute.value;
             }
-            current = current.parentElement;
         }
         return null;
     }
-    function computeFolderPath(anchor) {
-        const folders = [];
-        let currentDl = anchor.closest("DL");
-        while (currentDl) {
-            const previous = getPreviousElementSibling(currentDl);
-            if (previous && previous.tagName === "DT") {
-                const heading = Array.from(previous.children).find((child) => child.tagName === "H3");
-                if (heading && heading.textContent) {
-                    const folderName = heading.textContent.trim();
-                    if (folderName.length > 0) {
-                        folders.unshift(folderName);
-                    }
-                }
+    function getStructuralChildren(node) {
+        const children = [];
+        for (const childNode of Array.from(node.childNodes)) {
+            if (childNode.nodeType !== Node.ELEMENT_NODE) {
+                continue;
             }
-            currentDl = getParentDl(currentDl.parentElement);
+            const element = childNode;
+            if (element.tagName.toUpperCase() === "P") {
+                children.push(...getStructuralChildren(element));
+                continue;
+            }
+            children.push(element);
         }
-        return folders.join("/");
+        return children;
+    }
+    function getFolderHeadingForDt(dtNode, currentDl) {
+        const headings = Array.from(dtNode.querySelectorAll("h3"));
+        for (const heading of headings) {
+            if (heading.closest("DL") !== currentDl) {
+                continue;
+            }
+            const normalized = normalizeFolderName(heading.textContent || "");
+            if (normalized) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+    function getAnchorsForCurrentLevel(dtNode, currentDl) {
+        return Array.from(dtNode.querySelectorAll("a")).filter((anchor) => anchor.closest("DL") === currentDl);
+    }
+    function getNestedDlOwnedByDt(dtNode) {
+        return Array.from(dtNode.querySelectorAll("dl")).filter((nestedDl) => nestedDl.closest("DT") === dtNode);
+    }
+    function parseDlTree(dlNode, folderPath, output) {
+        const children = getStructuralChildren(dlNode);
+        const consumed = new Set();
+        for (let index = 0; index < children.length; index += 1) {
+            if (consumed.has(index)) {
+                continue;
+            }
+            const child = children[index];
+            const tag = child.tagName.toUpperCase();
+            if (tag === "DL") {
+                parseDlTree(child, folderPath, output);
+                continue;
+            }
+            if (tag !== "DT") {
+                continue;
+            }
+            const currentLevelAnchors = getAnchorsForCurrentLevel(child, dlNode);
+            currentLevelAnchors.forEach((anchor) => {
+                const title = normalizeFolderName(anchor.textContent || "");
+                const url = (getAttributeCaseInsensitive(anchor, "href") || "").trim();
+                if (!title || !url) {
+                    return;
+                }
+                const addDate = getAttributeCaseInsensitive(anchor, "add_date") || undefined;
+                output.push({
+                    title,
+                    url,
+                    addDate,
+                    folderPath: folderPath.join("/"),
+                    folderPathSegments: [...folderPath]
+                });
+            });
+            const folderHeading = getFolderHeadingForDt(child, dlNode);
+            const nestedDls = getNestedDlOwnedByDt(child);
+            if (!folderHeading) {
+                nestedDls.forEach((nestedDl) => parseDlTree(nestedDl, folderPath, output));
+                continue;
+            }
+            const nextFolderPath = [...folderPath, folderHeading];
+            if (nestedDls.length > 0) {
+                nestedDls.forEach((nestedDl) => parseDlTree(nestedDl, nextFolderPath, output));
+                continue;
+            }
+            // Some Netscape exports place the folder <DL> as a sibling after the folder's <DT>.
+            const sibling = children[index + 1];
+            if (sibling && sibling.tagName.toUpperCase() === "DL") {
+                consumed.add(index + 1);
+                parseDlTree(sibling, nextFolderPath, output);
+            }
+        }
     }
     function parseBookmarks(html) {
         const parser = new DOMParser();
         const documentNode = parser.parseFromString(html, "text/html");
-        const anchors = Array.from(documentNode.querySelectorAll("a"));
-        return anchors
-            .map((anchor) => {
-            const title = (anchor.textContent || "").trim();
-            const url = (anchor.getAttribute("href") || "").trim();
+        const rootDlNodes = Array.from(documentNode.querySelectorAll("dl")).filter((dlNode) => !dlNode.parentElement || !dlNode.parentElement.closest("DL"));
+        const parsed = [];
+        if (rootDlNodes.length > 0) {
+            rootDlNodes.forEach((rootDl) => parseDlTree(rootDl, [], parsed));
+            return parsed;
+        }
+        // Fallback for malformed variants missing DL wrappers.
+        Array.from(documentNode.querySelectorAll("a")).forEach((anchor) => {
+            const title = normalizeFolderName(anchor.textContent || "");
+            const url = (getAttributeCaseInsensitive(anchor, "href") || "").trim();
             if (!title || !url) {
-                return null;
+                return;
             }
-            return {
+            parsed.push({
                 title,
                 url,
-                addDate: anchor.getAttribute("add_date") || undefined,
-                folderPath: computeFolderPath(anchor)
-            };
-        })
-            .filter((bookmark) => bookmark !== null);
+                addDate: getAttributeCaseInsensitive(anchor, "add_date") || undefined,
+                folderPath: "",
+                folderPathSegments: []
+            });
+        });
+        return parsed;
     }
     BookmarkCowboy.parseBookmarks = parseBookmarks;
 })(BookmarkCowboy || (BookmarkCowboy = {}));
@@ -164,6 +236,8 @@ var BookmarkCowboy;
             this.addInput = "";
             this.welcomeAddInput = "";
             this.inlineAddFolderId = null;
+            this.bookmarkEditorTitle = "";
+            this.bookmarkEditorUrl = "";
             this.showSettingsModal = false;
             this.showBulkAddModal = false;
             this.bulkAddInput = "";
@@ -177,6 +251,7 @@ var BookmarkCowboy;
             this.previewImageUrl = "";
             this.previewLoading = false;
             this.previewError = "";
+            this.themeMode = "auto";
             this.darkThemeEnabled = false;
             this.recordingShortcutAction = null;
             this.recordedShortcutValue = null;
@@ -191,6 +266,8 @@ var BookmarkCowboy;
             this.draggingFolderIds = [];
             this.dropTargetFolderId = null;
             this.dropTargetValid = false;
+            this.dropTargetBookmarkId = null;
+            this.dropTargetBookmarkValid = false;
             this.selectedItemKeys = new Set();
             this.selectionAnchor = null;
             this.activeColumnId = 0;
@@ -223,15 +300,25 @@ var BookmarkCowboy;
             this.previewResizeEndHandler = () => this.stopPreviewResize();
             this.nextToastId = 1;
             this.toastTimeouts = new Map();
+            this.welcomeDismissed = false;
+            this.bookmarkEditorBookmarkId = null;
+            this.bookmarkEditorOriginalTitle = "";
+            this.bookmarkEditorOriginalUrl = "";
+            this.themeMediaQuery = null;
+            this.themeMediaChangeHandler = () => this.onSystemThemeChanged();
             this.settings = this.loadSettings();
             this.sortField = this.settings.defaultSortField;
             this.folderDisplayMode = this.settings.defaultFolderDisplayMode;
+            this.themeMode = this.loadThemeMode();
             this.rootFolder = this.createRootFolder();
             this.keyHandler = (event) => this.onKeydown(event);
             const documentNode = this.$document[0];
             documentNode.addEventListener("keydown", this.keyHandler);
+            this.setupThemeSystemListener();
+            this.applyThemeMode();
             this.$scope.$on("$destroy", () => {
                 documentNode.removeEventListener("keydown", this.keyHandler);
+                this.teardownThemeSystemListener();
                 this.cancelPreviewWork();
                 this.stopColumnResize();
                 this.stopPreviewResize();
@@ -243,6 +330,7 @@ var BookmarkCowboy;
             if (!files || files.length === 0) {
                 return;
             }
+            const startedFromWelcome = this.shouldShowWelcomeOverlay();
             const file = files[0];
             const reader = new FileReader();
             reader.onload = () => {
@@ -253,7 +341,16 @@ var BookmarkCowboy;
                     this.recordAction("Import bookmarks");
                     this.resetTree();
                     parsed.forEach((bookmark) => {
-                        const folder = this.ensureFolderPath(bookmark.folderPath, this.rootFolder.id);
+                        const rawSegments = Array.isArray(bookmark.folderPathSegments)
+                            ? bookmark.folderPathSegments
+                            : bookmark.folderPath
+                                .split("/")
+                                .map((segment) => segment.trim())
+                                .filter((segment) => segment.length > 0);
+                        const folderPathSegments = rawSegments
+                            .map((segment) => segment.trim())
+                            .filter((segment) => segment.length > 0);
+                        const folder = this.ensureFolderPath(folderPathSegments, this.rootFolder.id);
                         this.createBookmark(folder, bookmark.title, bookmark.url, bookmark.addDate);
                     });
                     this.selectedFolderId = this.rootFolder.id;
@@ -268,6 +365,7 @@ var BookmarkCowboy;
                     this.bumpTreeVersion();
                     this.sortAllBookmarksIfEnabled();
                     this.enforceDuplicatePolicy();
+                    this.handleSuccessfulWelcomeTransition(startedFromWelcome);
                     console.info("[import] bookmarks", { count: parsed.length });
                     this.message = `Imported ${parsed.length} bookmarks.`;
                 }
@@ -290,15 +388,20 @@ var BookmarkCowboy;
             const input = documentNode.getElementById("import-input");
             input === null || input === void 0 ? void 0 : input.click();
         }
-        toggleTheme() {
-            this.darkThemeEnabled = !this.darkThemeEnabled;
-            const documentNode = this.$document[0];
-            if (this.darkThemeEnabled) {
-                documentNode.body.classList.add("theme-dark");
+        clearSearch() {
+            this.searchQuery = "";
+            this.$timeout(() => this.focusSearch(), 0);
+        }
+        setThemeMode(mode) {
+            if (mode !== "light" && mode !== "dark" && mode !== "auto") {
+                return;
             }
-            else {
-                documentNode.body.classList.remove("theme-dark");
+            if (this.themeMode === mode) {
+                return;
             }
+            this.themeMode = mode;
+            this.persistThemeMode(mode);
+            this.applyThemeMode();
         }
         openAddModal() {
             this.startInlineAdd(this.activeColumnId);
@@ -325,8 +428,10 @@ var BookmarkCowboy;
         }
         submitBulkAdd() {
             this.clearStatus();
+            const startedFromWelcome = this.shouldShowWelcomeOverlay();
             const folderId = this.activeColumnId;
-            if (!this.folderIndex.has(folderId)) {
+            const targetFolder = this.folderIndex.get(folderId);
+            if (!targetFolder) {
                 this.error = "Select a valid folder first.";
                 return;
             }
@@ -335,15 +440,14 @@ var BookmarkCowboy;
                 .map((line) => line.trim())
                 .filter((line) => line.length > 0);
             if (lines.length === 0) {
-                this.error = "Paste one URL or path+URL per line.";
+                this.error = "Paste one URL per line.";
                 return;
             }
             let addedBookmarks = 0;
-            let createdFolders = 0;
             let skippedLines = 0;
             this.recordAction("Bulk add");
             lines.forEach((line) => {
-                const result = this.addItemFromRaw(line, folderId);
+                const result = this.addBulkUrlLine(line, targetFolder);
                 if (result.error) {
                     skippedLines += 1;
                     return;
@@ -351,23 +455,21 @@ var BookmarkCowboy;
                 if (result.addedBookmarkTitle) {
                     addedBookmarks += 1;
                 }
-                else if (result.createdFolder) {
-                    createdFolders += 1;
-                }
             });
-            if (addedBookmarks + createdFolders === 0) {
-                this.error = "No valid lines were added.";
+            if (addedBookmarks === 0) {
+                this.error = "No valid URLs were added.";
                 return;
             }
             this.invalidateFolderSummaries();
             this.bumpTreeVersion();
             this.sortAllBookmarksIfEnabled();
             this.enforceDuplicatePolicy();
+            this.handleSuccessfulWelcomeTransition(startedFromWelcome);
             this.showBulkAddModal = false;
             this.bulkAddInput = "";
-            this.message = `Bulk add complete: ${addedBookmarks} bookmarks, ${createdFolders} folders.`;
+            this.message = `Bulk add complete: ${addedBookmarks} bookmarks.`;
             if (skippedLines > 0) {
-                this.error = `Skipped ${skippedLines} invalid line(s).`;
+                this.error = `Skipped ${skippedLines} invalid URL line(s).`;
             }
         }
         onAddInputKeydown(event) {
@@ -397,6 +499,7 @@ var BookmarkCowboy;
         }
         submitWelcomeAdd() {
             this.clearStatus();
+            const startedFromWelcome = this.shouldShowWelcomeOverlay();
             const raw = this.welcomeAddInput.trim();
             if (!raw) {
                 this.error = "Enter a URL or folder path.";
@@ -412,6 +515,7 @@ var BookmarkCowboy;
             this.bumpTreeVersion();
             this.sortAllBookmarksIfEnabled();
             this.enforceDuplicatePolicy();
+            this.handleSuccessfulWelcomeTransition(startedFromWelcome);
             if (result.addedBookmarkTitle) {
                 this.message = `Added bookmark ${result.addedBookmarkTitle}.`;
             }
@@ -419,7 +523,9 @@ var BookmarkCowboy;
                 this.message = "Folder created.";
             }
             this.welcomeAddInput = "";
-            this.focusWelcomeAddInput();
+            if (!startedFromWelcome) {
+                this.focusWelcomeAddInput();
+            }
         }
         startInlineAdd(folderId) {
             if (!this.folderIndex.has(folderId)) {
@@ -609,7 +715,82 @@ var BookmarkCowboy;
             return this.getImportedBookmarkCount() > 0;
         }
         shouldShowWelcomeOverlay() {
-            return !this.hasActiveBookmarks() && this.inlineAddFolderId === null;
+            return !this.welcomeDismissed && !this.hasActiveBookmarks() && this.inlineAddFolderId === null;
+        }
+        shouldShowBookmarkEditor() {
+            if (!this.selectedEntry || this.selectedEntry.type !== "bookmark") {
+                return false;
+            }
+            return this.bookmarkEditorBookmarkId === this.selectedEntry.id && this.bookmarkIndex.has(this.selectedEntry.id);
+        }
+        isBookmarkEditorDirtyState() {
+            return this.isBookmarkEditorDirty();
+        }
+        getBookmarkEditorFaviconUrl() {
+            const bookmark = this.getBookmarkEditorBookmark();
+            if (!bookmark) {
+                return this.getBookmarkFaviconPlaceholder();
+            }
+            return this.getFaviconUrl(bookmark.url);
+        }
+        getBookmarkEditorFaviconFallbackUrl() {
+            const bookmark = this.getBookmarkEditorBookmark();
+            if (!bookmark) {
+                return this.getBookmarkFaviconPlaceholder();
+            }
+            return this.getFaviconFallbackUrl(bookmark.url);
+        }
+        onBookmarkEditorKeydown(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                this.submitBookmarkEditor();
+                return;
+            }
+            if (event.key === "Escape") {
+                event.preventDefault();
+                this.cancelBookmarkEditorEdits();
+            }
+        }
+        onBookmarkEditorFieldBlur() {
+            if (!this.isBookmarkEditorDirty()) {
+                return;
+            }
+            this.cancelBookmarkEditorEdits();
+        }
+        submitBookmarkEditor() {
+            const bookmark = this.getBookmarkEditorBookmark();
+            if (!bookmark) {
+                return;
+            }
+            this.clearStatus();
+            const nextTitle = this.bookmarkEditorTitle.trim();
+            const rawUrl = this.bookmarkEditorUrl.trim();
+            if (!nextTitle) {
+                this.error = "Bookmark title cannot be empty.";
+                this.cancelBookmarkEditorEdits();
+                return;
+            }
+            if (!rawUrl || !this.isLikelyUrl(rawUrl)) {
+                this.error = "Enter a valid URL.";
+                this.cancelBookmarkEditorEdits();
+                return;
+            }
+            const normalizedUrl = this.normalizeUrl(rawUrl);
+            this.recordAction("Edit bookmark");
+            bookmark.title = nextTitle;
+            bookmark.url = normalizedUrl;
+            this.syncBookmarkEditorFromBookmark(bookmark);
+            this.bumpTreeVersion();
+            this.sortAllBookmarksIfEnabled();
+            this.enforceDuplicatePolicy();
+            this.message = "Bookmark updated.";
+        }
+        cancelBookmarkEditorEdits() {
+            if (this.bookmarkEditorBookmarkId === null) {
+                return;
+            }
+            this.bookmarkEditorTitle = this.bookmarkEditorOriginalTitle;
+            this.bookmarkEditorUrl = this.bookmarkEditorOriginalUrl;
         }
         setSortField(field) {
             this.sortField = field;
@@ -639,6 +820,7 @@ var BookmarkCowboy;
             if (!this.folderIndex.has(folderId)) {
                 return;
             }
+            this.clearBookmarkEditor();
             if (folderId === BookmarkController.archiveFolderId) {
                 this.activeRootTab = "archive";
                 this.selectedFolderId = folderId;
@@ -679,6 +861,7 @@ var BookmarkCowboy;
                 this.activeRootTab = "all";
                 this.columnPathFolderIds = this.buildFolderPath(bookmark.parentFolderId);
             }
+            this.syncBookmarkEditorFromBookmark(bookmark);
         }
         openFinderBookmark(item, event) {
             event.preventDefault();
@@ -714,6 +897,7 @@ var BookmarkCowboy;
                 return;
             }
             this.clearStatus();
+            this.clearBookmarkEditor();
             this.activeRootTab = tab;
             if (tab === "archive") {
                 const archiveFolder = this.getArchiveFolder();
@@ -988,6 +1172,8 @@ var BookmarkCowboy;
             this.draggingFolderId = null;
             this.dropTargetFolderId = null;
             this.dropTargetValid = false;
+            this.dropTargetBookmarkId = null;
+            this.dropTargetBookmarkValid = false;
             if (event.dataTransfer) {
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", `bookmark:${bookmarkId}`);
@@ -1011,6 +1197,8 @@ var BookmarkCowboy;
             this.draggingBookmarkId = null;
             this.dropTargetFolderId = null;
             this.dropTargetValid = false;
+            this.dropTargetBookmarkId = null;
+            this.dropTargetBookmarkValid = false;
             if (event.dataTransfer) {
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", `folder:${folderId}`);
@@ -1022,6 +1210,8 @@ var BookmarkCowboy;
             this.dropTargetFolderId = folderId;
             this.dropTargetValid = valid;
             this.hoverFolderId = folderId;
+            this.dropTargetBookmarkId = null;
+            this.dropTargetBookmarkValid = false;
             if (valid) {
                 event.preventDefault();
             }
@@ -1035,6 +1225,39 @@ var BookmarkCowboy;
         }
         onColumnDrop(folderId, event) {
             this.dropOnFolderTarget(folderId, event);
+        }
+        onBookmarkItemDragOver(bookmarkId, event) {
+            if (this.draggingType !== "bookmark") {
+                return;
+            }
+            this.dropTargetFolderId = null;
+            this.dropTargetValid = false;
+            this.hoverFolderId = null;
+            const valid = this.canDropOnBookmark(bookmarkId);
+            this.dropTargetBookmarkId = bookmarkId;
+            this.dropTargetBookmarkValid = valid;
+            if (valid) {
+                event.preventDefault();
+            }
+            event.stopPropagation();
+        }
+        onBookmarkItemDragLeave(bookmarkId, event) {
+            event.stopPropagation();
+            const currentTarget = event.currentTarget;
+            if (currentTarget) {
+                const bounds = currentTarget.getBoundingClientRect();
+                const insideBounds = event.clientX >= bounds.left &&
+                    event.clientX <= bounds.right &&
+                    event.clientY >= bounds.top &&
+                    event.clientY <= bounds.bottom;
+                if (insideBounds) {
+                    return;
+                }
+            }
+            if (this.dropTargetBookmarkId === bookmarkId) {
+                this.dropTargetBookmarkId = null;
+                this.dropTargetBookmarkValid = false;
+            }
         }
         onFolderItemDragLeave(folderId, event) {
             event.stopPropagation();
@@ -1115,6 +1338,17 @@ var BookmarkCowboy;
             }
             this.clearDragState();
         }
+        dropOnBookmarkTarget(bookmarkId, event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!this.canDropOnBookmark(bookmarkId)) {
+                this.error = "Invalid drop target.";
+                this.clearDragState();
+                return;
+            }
+            this.createFolderFromBookmarkDrop(bookmarkId);
+            this.clearDragState();
+        }
         isDropTarget(folderId) {
             return this.dropTargetFolderId === folderId;
         }
@@ -1123,6 +1357,12 @@ var BookmarkCowboy;
         }
         isDropTargetInvalid(folderId) {
             return this.dropTargetFolderId === folderId && !this.dropTargetValid;
+        }
+        isBookmarkCombineTargetValid(bookmarkId) {
+            return this.dropTargetBookmarkId === bookmarkId && this.dropTargetBookmarkValid;
+        }
+        isBookmarkCombineTargetInvalid(bookmarkId) {
+            return this.dropTargetBookmarkId === bookmarkId && !this.dropTargetBookmarkValid;
         }
         renameSelectedFolder() {
             this.clearStatus();
@@ -1526,6 +1766,122 @@ var BookmarkCowboy;
             input === null || input === void 0 ? void 0 : input.focus();
             input === null || input === void 0 ? void 0 : input.select();
         }
+        setupThemeSystemListener() {
+            if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+                return;
+            }
+            this.themeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+            if (typeof this.themeMediaQuery.addEventListener === "function") {
+                this.themeMediaQuery.addEventListener("change", this.themeMediaChangeHandler);
+            }
+            else if (typeof this.themeMediaQuery.addListener === "function") {
+                this.themeMediaQuery.addListener(this.themeMediaChangeHandler);
+            }
+        }
+        teardownThemeSystemListener() {
+            if (!this.themeMediaQuery) {
+                return;
+            }
+            if (typeof this.themeMediaQuery.removeEventListener === "function") {
+                this.themeMediaQuery.removeEventListener("change", this.themeMediaChangeHandler);
+            }
+            else if (typeof this.themeMediaQuery.removeListener === "function") {
+                this.themeMediaQuery.removeListener(this.themeMediaChangeHandler);
+            }
+        }
+        onSystemThemeChanged() {
+            if (this.themeMode !== "auto") {
+                return;
+            }
+            this.applyThemeMode();
+            this.$scope.$applyAsync();
+        }
+        prefersDarkTheme() {
+            if (!this.themeMediaQuery) {
+                return false;
+            }
+            return this.themeMediaQuery.matches;
+        }
+        applyThemeMode() {
+            const shouldUseDark = this.themeMode === "dark" || (this.themeMode === "auto" && this.prefersDarkTheme());
+            this.darkThemeEnabled = shouldUseDark;
+            const documentNode = this.$document[0];
+            documentNode.body.classList.toggle("theme-dark", shouldUseDark);
+            documentNode.body.setAttribute("data-theme-mode", this.themeMode);
+        }
+        loadThemeMode() {
+            try {
+                const raw = localStorage.getItem(BookmarkController.themeModeStorageKey);
+                if (raw === "light" || raw === "dark" || raw === "auto") {
+                    return raw;
+                }
+            }
+            catch (error) {
+                console.warn("[theme] failed to load mode", error);
+            }
+            return "auto";
+        }
+        persistThemeMode(mode) {
+            try {
+                localStorage.setItem(BookmarkController.themeModeStorageKey, mode);
+            }
+            catch (error) {
+                console.warn("[theme] failed to persist mode", error);
+            }
+        }
+        getBookmarkEditorBookmark() {
+            var _a;
+            if (this.bookmarkEditorBookmarkId === null) {
+                return null;
+            }
+            return (_a = this.bookmarkIndex.get(this.bookmarkEditorBookmarkId)) !== null && _a !== void 0 ? _a : null;
+        }
+        isBookmarkEditorDirty() {
+            return (this.bookmarkEditorBookmarkId !== null &&
+                (this.bookmarkEditorTitle !== this.bookmarkEditorOriginalTitle ||
+                    this.bookmarkEditorUrl !== this.bookmarkEditorOriginalUrl));
+        }
+        syncBookmarkEditorFromBookmark(bookmark) {
+            this.bookmarkEditorBookmarkId = bookmark.id;
+            this.bookmarkEditorOriginalTitle = bookmark.title;
+            this.bookmarkEditorOriginalUrl = bookmark.url;
+            this.bookmarkEditorTitle = bookmark.title;
+            this.bookmarkEditorUrl = bookmark.url;
+        }
+        syncBookmarkEditorFromSelection() {
+            if (!this.selectedEntry || this.selectedEntry.type !== "bookmark") {
+                this.clearBookmarkEditor();
+                return;
+            }
+            const bookmark = this.bookmarkIndex.get(this.selectedEntry.id);
+            if (!bookmark) {
+                this.clearBookmarkEditor();
+                return;
+            }
+            this.syncBookmarkEditorFromBookmark(bookmark);
+        }
+        clearBookmarkEditor() {
+            this.bookmarkEditorBookmarkId = null;
+            this.bookmarkEditorOriginalTitle = "";
+            this.bookmarkEditorOriginalUrl = "";
+            this.bookmarkEditorTitle = "";
+            this.bookmarkEditorUrl = "";
+        }
+        handleSuccessfulWelcomeTransition(startedFromWelcome) {
+            if (!startedFromWelcome) {
+                return;
+            }
+            this.welcomeDismissed = true;
+            this.activeRootTab = "all";
+            this.selectedFolderId = this.rootFolder.id;
+            this.activeColumnId = this.rootFolder.id;
+            this.columnPathFolderIds = [this.rootFolder.id];
+            this.selectedEntry = { type: "folder", id: this.rootFolder.id };
+            this.inlineAddFolderId = null;
+            this.addInput = "";
+            this.invalidateFinderColumnsCache();
+            this.$timeout(() => this.focusSearch(), 0);
+        }
         defaultSettings() {
             return BookmarkCowboy.defaultAppSettings();
         }
@@ -1569,6 +1925,16 @@ var BookmarkCowboy;
             }
             this.ensureFolderPath(raw, selectedFolder.id);
             return { createdFolder: true };
+        }
+        addBulkUrlLine(rawLine, parentFolder) {
+            const value = rawLine.trim();
+            if (!value || !this.isLikelyUrl(value)) {
+                return { error: "Invalid URL" };
+            }
+            const url = this.normalizeUrl(value);
+            const title = this.domainFromUrl(url) || url;
+            this.createBookmark(parentFolder, title, url);
+            return { addedBookmarkTitle: title };
         }
         normalizeShortcutKey(value) {
             return BookmarkCowboy.normalizeShortcutKey(value);
@@ -1739,6 +2105,7 @@ var BookmarkCowboy;
             this.invalidateFolderSummaries();
             this.bumpTreeVersion();
             this.reconcileColumnStateAfterMutation();
+            this.syncBookmarkEditorFromSelection();
         }
         cloneFolderTree(folder) {
             return BookmarkCowboy.cloneFolderTreeNode(folder);
@@ -1919,6 +2286,31 @@ var BookmarkCowboy;
                 return draggedFolder.parentFolderId !== targetFolderId;
             });
         }
+        canDropOnBookmark(targetBookmarkId) {
+            if (this.draggingType !== "bookmark") {
+                return false;
+            }
+            if (this.draggingBookmarkIds.length === 0) {
+                return false;
+            }
+            const targetBookmark = this.bookmarkIndex.get(targetBookmarkId);
+            if (!targetBookmark) {
+                return false;
+            }
+            if (targetBookmark.parentFolderId === BookmarkController.archiveFolderId) {
+                return false;
+            }
+            if (this.draggingBookmarkIds.includes(targetBookmarkId)) {
+                return false;
+            }
+            return this.draggingBookmarkIds.every((bookmarkId) => {
+                const bookmark = this.bookmarkIndex.get(bookmarkId);
+                if (!bookmark) {
+                    return false;
+                }
+                return bookmark.parentFolderId !== BookmarkController.archiveFolderId;
+            });
+        }
         isFolderDescendant(folderId, candidateDescendantId) {
             var _a, _b;
             let current = (_a = this.folderIndex.get(candidateDescendantId)) !== null && _a !== void 0 ? _a : null;
@@ -1938,6 +2330,8 @@ var BookmarkCowboy;
             this.draggingFolderIds = [];
             this.dropTargetFolderId = null;
             this.dropTargetValid = false;
+            this.dropTargetBookmarkId = null;
+            this.dropTargetBookmarkValid = false;
             this.hoverFolderId = null;
         }
         setMultiDragPreview(event, selectedCount) {
@@ -2161,10 +2555,12 @@ var BookmarkCowboy;
         ensureFolderPath(path, parentFolderId) {
             var _a;
             const parent = (_a = this.folderIndex.get(parentFolderId)) !== null && _a !== void 0 ? _a : this.rootFolder;
-            const segments = path
-                .split("/")
-                .map((part) => part.trim())
-                .filter((part) => part.length > 0);
+            const segments = Array.isArray(path)
+                ? path.map((part) => part.trim()).filter((part) => part.length > 0)
+                : path
+                    .split("/")
+                    .map((part) => part.trim())
+                    .filter((part) => part.length > 0);
             let current = parent;
             segments.forEach((segment) => {
                 let child = current.folders.find((folder) => folder.name === segment);
@@ -2299,6 +2695,28 @@ var BookmarkCowboy;
         formatUrlForDisplay(rawUrl) {
             return BookmarkCowboy.formatUrlForDisplay(rawUrl);
         }
+        getDisplayUrlHost(displayUrl) {
+            const trimmed = (displayUrl || "").trim();
+            if (!trimmed) {
+                return "";
+            }
+            const slashIndex = trimmed.indexOf("/");
+            if (slashIndex < 0) {
+                return trimmed;
+            }
+            return trimmed.slice(0, slashIndex);
+        }
+        getDisplayUrlRemainder(displayUrl) {
+            const trimmed = (displayUrl || "").trim();
+            if (!trimmed) {
+                return "";
+            }
+            const slashIndex = trimmed.indexOf("/");
+            if (slashIndex < 0) {
+                return "";
+            }
+            return trimmed.slice(slashIndex);
+        }
         domainFromUrl(rawUrl) {
             return BookmarkCowboy.domainFromUrl(rawUrl);
         }
@@ -2342,6 +2760,72 @@ var BookmarkCowboy;
                         ? `Moved bookmark to ${targetFolder.name}.`
                         : `Moved ${bookmarkIds.length} bookmarks to ${targetFolder.name}.`;
             }
+        }
+        createFolderFromBookmarkDrop(targetBookmarkId) {
+            const targetBookmark = this.bookmarkIndex.get(targetBookmarkId);
+            if (!targetBookmark) {
+                this.error = "Target bookmark not found.";
+                return;
+            }
+            const parentFolder = this.folderIndex.get(targetBookmark.parentFolderId);
+            if (!parentFolder) {
+                this.error = "Target parent folder not found.";
+                return;
+            }
+            if (parentFolder.id === BookmarkController.archiveFolderId) {
+                this.error = "Cannot create folders in Archive.";
+                return;
+            }
+            const bookmarkIds = Array.from(new Set([...this.draggingBookmarkIds, targetBookmarkId]))
+                .filter((bookmarkId) => bookmarkId !== targetBookmarkId || !this.draggingBookmarkIds.includes(targetBookmarkId))
+                .filter((bookmarkId) => this.bookmarkIndex.has(bookmarkId));
+            if (bookmarkIds.length < 2) {
+                this.error = "Drop on a different bookmark to create a folder.";
+                return;
+            }
+            this.recordAction(bookmarkIds.length === 2 ? "Create folder from 2 bookmarks" : "Create folder from bookmarks");
+            const folderName = this.getNextAutoFolderName(parentFolder);
+            const createdFolder = {
+                id: this.nextFolderId++,
+                name: folderName,
+                parentFolderId: parentFolder.id,
+                folders: [],
+                bookmarks: []
+            };
+            parentFolder.folders.push(createdFolder);
+            this.folderIndex.set(createdFolder.id, createdFolder);
+            bookmarkIds.forEach((bookmarkId) => {
+                this.moveBookmarkToFolder(bookmarkId, createdFolder.id);
+            });
+            this.invalidateFolderSummaries();
+            this.bumpTreeVersion();
+            this.enforceDuplicatePolicy();
+            this.selectFolder(createdFolder.id);
+            this.selectedItemKeys.clear();
+            this.selectedItemKeys.add(this.itemKey("folder", createdFolder.id));
+            this.selectionAnchor = null;
+            this.message = `Created ${createdFolder.name} with ${bookmarkIds.length} bookmarks.`;
+        }
+        getNextAutoFolderName(parentFolder) {
+            let maxOrdinal = 0;
+            const existingNames = new Set(parentFolder.folders.map((folder) => folder.name.toLowerCase()));
+            parentFolder.folders.forEach((folder) => {
+                const match = /^Folder\s+(\d+)$/.exec(folder.name);
+                if (!match) {
+                    return;
+                }
+                const ordinal = Number(match[1]);
+                if (Number.isFinite(ordinal) && ordinal > maxOrdinal) {
+                    maxOrdinal = ordinal;
+                }
+            });
+            let candidateOrdinal = Math.max(1, maxOrdinal + 1);
+            let candidate = `Folder ${candidateOrdinal}`;
+            while (existingNames.has(candidate.toLowerCase())) {
+                candidateOrdinal += 1;
+                candidate = `Folder ${candidateOrdinal}`;
+            }
+            return candidate;
         }
         moveFolderToFolder(folderId, targetFolderId) {
             const folder = this.folderIndex.get(folderId);
@@ -2448,6 +2932,9 @@ var BookmarkCowboy;
             }
             this.bookmarkIndex.delete(bookmarkId);
             this.selectedItemKeys.delete(this.itemKey("bookmark", bookmarkId));
+            if (this.bookmarkEditorBookmarkId === bookmarkId) {
+                this.clearBookmarkEditor();
+            }
         }
         removeFolder(folderId) {
             if (folderId === this.rootFolder.id || folderId === BookmarkController.archiveFolderId) {
@@ -2471,6 +2958,7 @@ var BookmarkCowboy;
     }
     BookmarkController.$inject = ["$scope", "$document", "$timeout"];
     BookmarkController.settingsStorageKey = "bookmark-cowboy.settings.v1";
+    BookmarkController.themeModeStorageKey = "bookmark-cowboy.theme-mode.v1";
     BookmarkController.archiveFolderId = -1;
     BookmarkController.faviconPlaceholderDataUri = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' rx='3' fill='%23e5e7eb'/%3E%3Cpath d='M4 8h8' stroke='%239ca3af' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E";
     BookmarkCowboy.BookmarkController = BookmarkController;
@@ -2698,14 +3186,9 @@ var BookmarkCowboy;
     }
     BookmarkCowboy.buildFaviconFallbackUrl = buildFaviconFallbackUrl;
     function formatFolderDirectSummary(folder) {
-        const folderCount = folder.folders.length;
         const bookmarkCount = folder.bookmarks.length;
-        if (folderCount === 0 && bookmarkCount === 0) {
-            return "empty";
-        }
-        const folderLabel = `${folderCount} folder${folderCount === 1 ? "" : "s"}`;
         const bookmarkLabel = `${bookmarkCount} bookmark${bookmarkCount === 1 ? "" : "s"}`;
-        return `${folderLabel}, ${bookmarkLabel}`;
+        return bookmarkLabel;
     }
     BookmarkCowboy.formatFolderDirectSummary = formatFolderDirectSummary;
 })(BookmarkCowboy || (BookmarkCowboy = {}));

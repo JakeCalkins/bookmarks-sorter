@@ -27,6 +27,15 @@
             ng-model="vm.searchQuery"
             placeholder="Search folders, titles, URLs, domains ({{ vm.getShortcutLabel(vm.settings.shortcuts.search) }})"
             title="Focus search ({{ vm.getShortcutLabel(vm.settings.shortcuts.search) }})" />
+          <button
+            type="button"
+            class="search-clear-btn"
+            ng-if="vm.searchQuery.length > 0"
+            ng-click="vm.clearSearch()"
+            aria-label="Clear search"
+            title="Clear search">
+            ×
+          </button>
         </div>
 
         <div class="actions">
@@ -99,7 +108,7 @@
             <span class="quick-toggle-box" aria-hidden="true"></span>
             <span>Deduplicate</span>
           </button>
-          <div class="sort-segmented" role="group" aria-label="Sort bookmarks">
+          <div class="sort-segmented toolbar-sort-control" role="group" aria-label="Sort bookmarks">
             <span class="sort-prefix">Sort by</span>
             <button
               type="button"
@@ -116,13 +125,38 @@
               URL
             </button>
           </div>
-          <button
-            type="button"
-            class="quick-mode-toggle"
-            ng-click="vm.toggleTheme()"
-            title="Toggle theme mode">
-            {{ vm.darkThemeEnabled ? 'Light Mode' : 'Dark Mode' }}
-          </button>
+          <div class="theme-segmented toolbar-theme-control" role="group" aria-label="Theme mode">
+            <button
+              type="button"
+              class="theme-option"
+              ng-class="{ active: vm.themeMode === 'light' }"
+              ng-click="vm.setThemeMode('light')">
+              Light
+            </button>
+            <button
+              type="button"
+              class="theme-option theme-option-dark"
+              ng-class="{ active: vm.themeMode === 'dark' }"
+              ng-click="vm.setThemeMode('dark')">
+              <svg viewBox="0 0 24 24" class="quick-mode-icon" aria-hidden="true">
+                <path
+                  d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+              </svg>
+              <span>Dark</span>
+            </button>
+            <button
+              type="button"
+              class="theme-option"
+              ng-class="{ active: vm.themeMode === 'auto' }"
+              ng-click="vm.setThemeMode('auto')">
+              Auto
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -226,15 +260,17 @@
                   'archive-row': item.type === 'folder' && item.id === -1,
                   'folder-hover-target': item.type === 'folder' && vm.isFolderHoverTarget(item.id),
                   'drop-valid': item.type === 'folder' && vm.isDropTargetValid(item.id),
-                  'drop-invalid': item.type === 'folder' && vm.isDropTargetInvalid(item.id)
+                  'drop-invalid': item.type === 'folder' && vm.isDropTargetInvalid(item.id),
+                  'bookmark-combine-valid': item.type === 'bookmark' && vm.isBookmarkCombineTargetValid(item.id),
+                  'bookmark-combine-invalid': item.type === 'bookmark' && vm.isBookmarkCombineTargetInvalid(item.id)
                 }"
                 ng-click="vm.onFinderItemClick($parent.$index, item, $event)"
                 ng-attr-draggable="{{ item.type === 'folder' || item.type === 'bookmark' ? 'true' : undefined }}"
                 drag-start="item.type === 'bookmark' ? vm.startBookmarkDrag(item.id, $event) : vm.startFolderDrag(item.id, $event)"
                 drag-end="vm.onDragEnd()"
-                drag-over="item.type === 'folder' && vm.onFolderItemDragOver(item.id, $event)"
-                drag-leave="item.type === 'folder' && vm.onFolderItemDragLeave(item.id, $event)"
-                drop-handler="item.type === 'folder' && vm.dropOnFolderTarget(item.id, $event)">
+                drag-over="item.type === 'folder' ? vm.onFolderItemDragOver(item.id, $event) : vm.onBookmarkItemDragOver(item.id, $event)"
+                drag-leave="item.type === 'folder' ? vm.onFolderItemDragLeave(item.id, $event) : vm.onBookmarkItemDragLeave(item.id, $event)"
+                drop-handler="item.type === 'folder' ? vm.dropOnFolderTarget(item.id, $event) : vm.dropOnBookmarkTarget(item.id, $event)">
                 <img ng-if="item.type === 'folder'" class="row-folder-icon" src="/icons/folder-tabler.svg" alt="" />
                 <img
                   ng-if="item.type === 'bookmark'"
@@ -245,8 +281,23 @@
                   alt="" />
                 <span class="row-main">
                   <span class="label" title="{{ item.name }}">{{ item.name }}</span>
-                  <span class="meta" title="{{ item.subtitle }}">{{ item.subtitle }}</span>
+                  <span
+                    class="meta"
+                    ng-class="{ 'meta-bookmark': item.type === 'bookmark' }"
+                    title="{{ item.subtitle }}">
+                    <span ng-if="item.type === 'bookmark'" class="meta-domain">{{ vm.getDisplayUrlHost(item.subtitle) }}</span><span ng-if="item.type === 'bookmark'" class="meta-rest">{{ vm.getDisplayUrlRemainder(item.subtitle) }}</span>
+                    <span ng-if="item.type !== 'bookmark'">{{ item.subtitle }}</span>
+                  </span>
                 </span>
+                <button
+                  type="button"
+                  class="row-open"
+                  ng-if="item.type === 'bookmark'"
+                  ng-click="vm.openFinderBookmark(item, $event)"
+                  title="Open in new tab"
+                  aria-label="Open bookmark">
+                  Open
+                </button>
                 <button
                   type="button"
                   class="row-delete"
@@ -256,15 +307,6 @@
                   <svg viewBox="0 0 24 24" class="trash-svg" aria-hidden="true">
                     <use href="/tabler-sprite.svg#tabler-minus"></use>
                   </svg>
-                </button>
-                <button
-                  type="button"
-                  class="row-open"
-                  ng-if="item.type === 'bookmark'"
-                  ng-click="vm.openFinderBookmark(item, $event)"
-                  title="Open in new tab"
-                  aria-label="Open bookmark">
-                  Open
                 </button>
               </div>
               <p
@@ -285,6 +327,56 @@
       </section>
 
     </main>
+
+    <section class="bookmark-editor-card" ng-if="vm.shouldShowBookmarkEditor()">
+      <div class="bookmark-editor-header">
+        <h4 class="bookmark-editor-title">Edit Bookmark</h4>
+        <div class="bookmark-editor-actions" ng-class="{ 'is-visible': vm.isBookmarkEditorDirtyState() }">
+          <button
+            type="button"
+            class="bookmark-editor-btn bookmark-editor-save"
+            ng-mousedown="$event.preventDefault()"
+            ng-click="vm.submitBookmarkEditor()"
+            ng-disabled="!vm.isBookmarkEditorDirtyState()">
+            Save
+          </button>
+          <button
+            type="button"
+            class="bookmark-editor-btn bookmark-editor-cancel"
+            ng-mousedown="$event.preventDefault()"
+            ng-click="vm.cancelBookmarkEditorEdits()"
+            ng-disabled="!vm.isBookmarkEditorDirtyState()">
+            Cancel
+          </button>
+        </div>
+      </div>
+      <div class="bookmark-editor-content">
+        <img
+          class="bookmark-editor-favicon"
+          ng-src="{{ vm.getBookmarkEditorFaviconUrl() }}"
+          favicon-fallback="{{ vm.getBookmarkEditorFaviconFallbackUrl() }}"
+          final-fallback="{{ vm.getBookmarkFaviconPlaceholder() }}"
+          alt="" />
+        <div class="bookmark-editor-fields">
+          <input
+            id="bookmark-editor-title"
+            class="bookmark-editor-input"
+            type="text"
+            ng-model="vm.bookmarkEditorTitle"
+            placeholder="Title"
+            ng-keydown="vm.onBookmarkEditorKeydown($event)"
+            ng-blur="vm.onBookmarkEditorFieldBlur()" />
+          <input
+            id="bookmark-editor-url"
+            class="bookmark-editor-input"
+            type="text"
+            ng-model="vm.bookmarkEditorUrl"
+            placeholder="URL"
+            ng-keydown="vm.onBookmarkEditorKeydown($event)"
+            ng-blur="vm.onBookmarkEditorFieldBlur()" />
+        </div>
+      </div>
+    </section>
 
     <section class="toast-stack" aria-live="polite" aria-atomic="false">
       <article class="toast-card" ng-repeat="toast in vm.toasts track by toast.id" ng-class="toast.level">
@@ -392,10 +484,14 @@
           </div>
 
           <div class="settings-row">
-            <span class="settings-label">Clear Archive (after export):</span>
+            <span class="settings-label settings-label-empty" aria-hidden="true"></span>
             <div class="settings-control settings-control-fixed">
-              <label class="settings-checkbox-label" title="Clear archive automatically after export">
+              <label class="settings-checkbox-label settings-checkbox-inline" title="Clear archive automatically after export">
                 <input type="checkbox" ng-model="vm.settings.clearArchiveAfterExport" />
+                <span class="settings-checkbox-text">
+                  <span class="settings-checkbox-primary">Clear Archive</span>
+                  <span class="settings-checkbox-secondary">(after export)</span>
+                </span>
               </label>
             </div>
           </div>
@@ -409,12 +505,13 @@
       </div>
 
       <div class="modal bulk-add-modal" ng-if="vm.showBulkAddModal" ng-click="$event.stopPropagation()">
+        <button type="button" class="modal-close" ng-click="vm.closeBulkAddModal()" aria-label="Close bulk add">×</button>
         <h3>Bulk Add</h3>
-        <p>Paste one URL or path+URL per line.</p>
+        <p>Paste one URL per line.</p>
         <textarea
           id="bulk-add-input"
           ng-model="vm.bulkAddInput"
-          placeholder="example.com&#10;work/tools/github.com&#10;reading/blog.example.com"></textarea>
+          placeholder="example.com&#10;https://news.ycombinator.com&#10;github.com"></textarea>
         <div class="modal-actions">
           <button type="button" ng-click="vm.submitBulkAdd()" title="Submit bulk add">Add Lines</button>
           <button type="button" ng-click="vm.closeBulkAddModal()" title="Cancel (Esc)">Cancel</button>

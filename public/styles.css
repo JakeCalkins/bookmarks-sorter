@@ -161,12 +161,45 @@ body {
   padding: 0.5rem;
 }
 
+.search-wrap {
+  position: relative;
+}
+
 #search-input {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.2-3.2'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: 0.55rem center;
   background-size: 14px 14px;
   padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+#search-input::placeholder {
+  font-style: italic;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.82rem;
+}
+
+.search-clear-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
 }
 
 .modal textarea {
@@ -339,6 +372,7 @@ button:hover {
 .workspace-summary-card {
   width: 190px;
   min-width: 190px;
+  margin-right: 0.45rem;
   padding: 0.35rem 0.75rem;
   border: 1px solid #d1d5db;
   border-radius: 8px;
@@ -385,7 +419,18 @@ button:hover {
   gap: 0.45rem;
 }
 
+.toolbar-sort-control {
+  margin-left: 0.4rem;
+}
+
+.toolbar-theme-control {
+  margin-left: 0.65rem;
+}
+
 .quick-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   color: #334155;
@@ -399,6 +444,53 @@ button:hover {
 .quick-mode-toggle:hover {
   background: #f1f5f9;
   border-color: #60a5fa;
+}
+
+.quick-mode-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.theme-segmented {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+  min-height: 26px;
+}
+
+.theme-option {
+  border: 0;
+  border-right: 1px solid #cbd5e1;
+  border-radius: 0;
+  background: #ffffff;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.2rem 0.45rem;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.theme-option:last-child {
+  border-right: 0;
+}
+
+.theme-option.active {
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+.theme-option:hover {
+  background: #f1f5f9;
 }
 
 .sort-segmented {
@@ -661,6 +753,7 @@ button:hover {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: border-color 120ms ease, border-width 120ms ease, box-shadow 120ms ease;
 }
 
 .finder-column-group {
@@ -697,11 +790,15 @@ button:hover {
 }
 
 .finder-column.drop-valid {
-  background: #ecfdf3;
+  border-width: 2px;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.3), 0 14px 30px rgba(37, 99, 235, 0.24);
 }
 
 .finder-column.drop-invalid {
-  background: #fef2f2;
+  border-width: 2px;
+  border-color: #d97706;
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.34), 0 14px 30px rgba(217, 119, 6, 0.24);
 }
 
 .column-divider {
@@ -789,8 +886,26 @@ button:hover {
   background: #fef2f2;
 }
 
+.row.bookmark-combine-valid {
+  border-color: #7c3aed;
+  background: #f3e8ff;
+}
+
+.row.bookmark-combine-invalid {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
+.row.bookmark-combine-valid .meta {
+  color: #6d28d9;
+}
+
 .row.folder {
   font-weight: 600;
+}
+
+.row.folder .meta {
+  font-weight: 400;
 }
 
 .archive-row {
@@ -808,7 +923,7 @@ button:hover {
 
 .finder-item {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 18px 42px;
+  grid-template-columns: 16px minmax(0, 1fr) 42px 18px;
   gap: 0.45rem;
   align-items: center;
   width: 100%;
@@ -833,6 +948,15 @@ button:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.finder-item .meta.meta-bookmark {
+  color: #94a3b8;
+}
+
+.finder-item .meta.meta-bookmark .meta-domain {
+  font-weight: 700;
+  color: #64748b;
 }
 
 .row-favicon {
@@ -861,6 +985,7 @@ button:hover {
 }
 
 .row-delete {
+  grid-column: 4;
   border: 1px solid transparent;
   background: transparent;
   color: #64748b;
@@ -886,6 +1011,7 @@ button:hover {
 }
 
 .row-open {
+  grid-column: 3;
   border: 1px solid transparent;
   background: transparent;
   color: #15803d;
@@ -1011,6 +1137,123 @@ button:hover {
   cursor: default;
 }
 
+.bookmark-editor-card {
+  position: fixed;
+  left: 50%;
+  bottom: 0.75rem;
+  transform: translateX(-50%);
+  z-index: 1180;
+  width: min(720px, calc(100vw - 1.5rem));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+  padding: 0.95rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+}
+
+.bookmark-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.bookmark-editor-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+  text-align: left;
+}
+
+.bookmark-editor-content {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+}
+
+.bookmark-editor-favicon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: block;
+  margin-top: 0.1rem;
+  background: #f3f4f6;
+}
+
+.bookmark-editor-fields {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bookmark-editor-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  min-width: 136px;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.bookmark-editor-actions.is-visible {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bookmark-editor-btn {
+  min-height: 24px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.72rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+}
+
+.bookmark-editor-save {
+  border-color: #22c55e;
+  color: #15803d;
+}
+
+.bookmark-editor-cancel {
+  border-color: #f87171;
+  color: #b91c1c;
+}
+
+.bookmark-editor-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.bookmark-editor-input {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.78rem;
+  padding: 0.34rem 0.45rem;
+}
+
+.bookmark-editor-input:hover {
+  border-color: #93c5fd;
+  background: #f8fafc;
+}
+
+.bookmark-editor-input:focus-visible {
+  border-color: #60a5fa;
+  outline: 2px solid #60a5fa;
+  outline-offset: 1px;
+}
+
 .drag-stack-preview {
   position: fixed;
   top: -1000px;
@@ -1097,13 +1340,13 @@ button:hover {
   position: absolute;
   top: 0.55rem;
   right: 0.55rem;
-  width: 24px;
+  min-width: 26px;
   height: 24px;
   border: 1px solid #cbd5e1;
-  border-radius: 999px;
+  border-radius: 4px;
   background: #ffffff;
   color: #475569;
-  padding: 0;
+  padding: 0 0.3rem;
   line-height: 1;
   font-size: 0.95rem;
 }
@@ -1152,6 +1395,10 @@ button:hover {
   font-weight: 600;
   min-width: 112px;
   text-align: left;
+}
+
+.settings-label-empty {
+  min-width: 0;
 }
 
 .settings-section-row {
@@ -1222,6 +1469,24 @@ button:hover {
   gap: 0.38rem;
   color: #334155;
   font-size: 0.8rem;
+}
+
+.settings-checkbox-inline {
+  gap: 0.45rem;
+}
+
+.settings-checkbox-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.settings-checkbox-primary {
+  font-weight: 700;
+}
+
+.settings-checkbox-secondary {
+  font-weight: 400;
 }
 
 .settings-toggle-row {
@@ -1319,6 +1584,16 @@ button:hover {
     grid-template-columns: 1fr;
     align-items: start;
   }
+
+  .bookmark-editor-card {
+    width: calc(100vw - 1rem);
+    bottom: 0.5rem;
+    padding: 0.78rem;
+  }
+
+  .bookmark-editor-title {
+    font-size: 0.88rem;
+  }
 }
 
 body.theme-dark {
@@ -1409,6 +1684,26 @@ body.theme-dark .quick-mode-toggle:hover {
   border-color: #60a5fa;
 }
 
+body.theme-dark .theme-segmented {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+body.theme-dark .theme-option {
+  background: #0f172a;
+  border-right-color: #334155;
+  color: #cbd5e1;
+}
+
+body.theme-dark .theme-option.active {
+  background: #1e3a8a;
+  color: #dbeafe;
+}
+
+body.theme-dark .theme-option:hover {
+  background: #1e293b;
+}
+
 body.theme-dark .toast-card,
 body.theme-dark .message-center-panel {
   background: #0f172a;
@@ -1472,6 +1767,17 @@ body.theme-dark .inline-add-input::placeholder {
   color: #94a3b8;
 }
 
+body.theme-dark .search-clear-btn {
+  background: #111b31;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+body.theme-dark .search-clear-btn:hover {
+  background: #1e293b;
+  border-color: #475569;
+}
+
 body.theme-dark .btn-bulk-add {
   background: #3b0764;
   border-color: #6b21a8;
@@ -1511,6 +1817,18 @@ body.theme-dark .finder-column {
   background: #0f172a;
   border-color: #334155;
   box-shadow: none;
+}
+
+body.theme-dark .finder-column.drop-valid {
+  border-width: 2px;
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.45), 0 16px 34px rgba(30, 58, 138, 0.55);
+}
+
+body.theme-dark .finder-column.drop-invalid {
+  border-width: 2px;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.5), 0 16px 34px rgba(120, 53, 15, 0.5);
 }
 
 body.theme-dark .finder-column-header {
@@ -1567,6 +1885,15 @@ body.theme-dark .finder-item .meta {
   color: #94a3b8;
 }
 
+body.theme-dark .finder-item .meta.meta-bookmark {
+  color: #8192ab;
+}
+
+body.theme-dark .finder-item .meta.meta-bookmark .meta-domain {
+  color: #cbd5e1;
+  font-weight: 700;
+}
+
 body.theme-dark .row-favicon {
   background: #1f2937;
 }
@@ -1580,6 +1907,52 @@ body.theme-dark .add-action {
 body.theme-dark .add-action:hover {
   background: #581c87;
   border-color: #a855f7;
+}
+
+body.theme-dark .bookmark-editor-card {
+  background: #0f172a;
+  border-color: #334155;
+  box-shadow: 0 20px 46px rgba(2, 6, 23, 0.6);
+}
+
+body.theme-dark .bookmark-editor-title {
+  color: #e2e8f0;
+}
+
+body.theme-dark .bookmark-editor-favicon {
+  background: #1f2937;
+}
+
+body.theme-dark .bookmark-editor-input {
+  background: #111b31;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+body.theme-dark .bookmark-editor-input:hover {
+  border-color: #60a5fa;
+  background: #1e293b;
+}
+
+body.theme-dark .bookmark-editor-input:focus-visible {
+  border-color: #60a5fa;
+  outline-color: #60a5fa;
+}
+
+body.theme-dark .bookmark-editor-btn {
+  background: #111b31;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+body.theme-dark .bookmark-editor-save {
+  border-color: #16a34a;
+  color: #86efac;
+}
+
+body.theme-dark .bookmark-editor-cancel {
+  border-color: #dc2626;
+  color: #fecaca;
 }
 
 body.theme-dark .finder-empty {

@@ -1,7 +1,10 @@
 namespace BookmarkCowboy {
+  type ThemeMode = "light" | "dark" | "auto";
+
   export class BookmarkController {
     public static $inject = ["$scope", "$document", "$timeout"];
     private static readonly settingsStorageKey = "bookmark-cowboy.settings.v1";
+    private static readonly themeModeStorageKey = "bookmark-cowboy.theme-mode.v1";
     private static readonly archiveFolderId = -1;
     private static readonly faviconPlaceholderDataUri =
       "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' rx='3' fill='%23e5e7eb'/%3E%3Cpath d='M4 8h8' stroke='%239ca3af' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E";
@@ -17,6 +20,8 @@ namespace BookmarkCowboy {
     public addInput = "";
     public welcomeAddInput = "";
     public inlineAddFolderId: number | null = null;
+    public bookmarkEditorTitle = "";
+    public bookmarkEditorUrl = "";
 
     public showSettingsModal = false;
     public showBulkAddModal = false;
@@ -34,6 +39,7 @@ namespace BookmarkCowboy {
     public previewLoading = false;
     public previewError = "";
     public settings: AppSettings;
+    public themeMode: ThemeMode = "auto";
     public darkThemeEnabled = false;
     public recordingShortcutAction: ShortcutAction | null = null;
     public recordedShortcutValue: string | null = null;
@@ -51,6 +57,8 @@ namespace BookmarkCowboy {
     private draggingFolderIds: number[] = [];
     private dropTargetFolderId: number | null = null;
     private dropTargetValid = false;
+    private dropTargetBookmarkId: number | null = null;
+    private dropTargetBookmarkValid = false;
     private selectedItemKeys = new Set<string>();
     private selectionAnchor: SelectionAnchor | null = null;
     private activeColumnId = 0;
@@ -85,6 +93,12 @@ namespace BookmarkCowboy {
     private readonly previewResizeEndHandler = () => this.stopPreviewResize();
     private nextToastId = 1;
     private readonly toastTimeouts = new Map<number, number>();
+    private welcomeDismissed = false;
+    private bookmarkEditorBookmarkId: number | null = null;
+    private bookmarkEditorOriginalTitle = "";
+    private bookmarkEditorOriginalUrl = "";
+    private themeMediaQuery: MediaQueryList | null = null;
+    private readonly themeMediaChangeHandler = () => this.onSystemThemeChanged();
 
     public get message(): string {
       return this._message;
@@ -116,13 +130,17 @@ namespace BookmarkCowboy {
       this.settings = this.loadSettings();
       this.sortField = this.settings.defaultSortField;
       this.folderDisplayMode = this.settings.defaultFolderDisplayMode;
+      this.themeMode = this.loadThemeMode();
       this.rootFolder = this.createRootFolder();
       this.keyHandler = (event: KeyboardEvent) => this.onKeydown(event);
       const documentNode = this.$document[0] as Document;
       documentNode.addEventListener("keydown", this.keyHandler);
+      this.setupThemeSystemListener();
+      this.applyThemeMode();
 
       this.$scope.$on("$destroy", () => {
         documentNode.removeEventListener("keydown", this.keyHandler);
+        this.teardownThemeSystemListener();
         this.cancelPreviewWork();
         this.stopColumnResize();
         this.stopPreviewResize();
@@ -135,6 +153,7 @@ namespace BookmarkCowboy {
       if (!files || files.length === 0) {
         return;
       }
+      const startedFromWelcome = this.shouldShowWelcomeOverlay();
 
       const file = files[0];
       const reader = new FileReader();
@@ -146,7 +165,16 @@ namespace BookmarkCowboy {
           this.resetTree();
 
           parsed.forEach((bookmark) => {
-            const folder = this.ensureFolderPath(bookmark.folderPath, this.rootFolder.id);
+            const rawSegments = Array.isArray(bookmark.folderPathSegments)
+              ? bookmark.folderPathSegments
+              : bookmark.folderPath
+                  .split("/")
+                  .map((segment) => segment.trim())
+                  .filter((segment) => segment.length > 0);
+            const folderPathSegments = rawSegments
+              .map((segment) => segment.trim())
+              .filter((segment) => segment.length > 0);
+            const folder = this.ensureFolderPath(folderPathSegments, this.rootFolder.id);
             this.createBookmark(folder, bookmark.title, bookmark.url, bookmark.addDate);
           });
 
@@ -162,6 +190,7 @@ namespace BookmarkCowboy {
           this.bumpTreeVersion();
           this.sortAllBookmarksIfEnabled();
           this.enforceDuplicatePolicy();
+          this.handleSuccessfulWelcomeTransition(startedFromWelcome);
           console.info("[import] bookmarks", { count: parsed.length });
           this.message = `Imported ${parsed.length} bookmarks.`;
         } catch (error) {
@@ -186,14 +215,21 @@ namespace BookmarkCowboy {
       input?.click();
     }
 
-    public toggleTheme(): void {
-      this.darkThemeEnabled = !this.darkThemeEnabled;
-      const documentNode = this.$document[0] as Document;
-      if (this.darkThemeEnabled) {
-        documentNode.body.classList.add("theme-dark");
-      } else {
-        documentNode.body.classList.remove("theme-dark");
+    public clearSearch(): void {
+      this.searchQuery = "";
+      this.$timeout(() => this.focusSearch(), 0);
+    }
+
+    public setThemeMode(mode: ThemeMode): void {
+      if (mode !== "light" && mode !== "dark" && mode !== "auto") {
+        return;
       }
+      if (this.themeMode === mode) {
+        return;
+      }
+      this.themeMode = mode;
+      this.persistThemeMode(mode);
+      this.applyThemeMode();
     }
 
     public openAddModal(): void {
@@ -226,8 +262,10 @@ namespace BookmarkCowboy {
 
     public submitBulkAdd(): void {
       this.clearStatus();
+      const startedFromWelcome = this.shouldShowWelcomeOverlay();
       const folderId = this.activeColumnId;
-      if (!this.folderIndex.has(folderId)) {
+      const targetFolder = this.folderIndex.get(folderId);
+      if (!targetFolder) {
         this.error = "Select a valid folder first.";
         return;
       }
@@ -238,30 +276,27 @@ namespace BookmarkCowboy {
         .filter((line) => line.length > 0);
 
       if (lines.length === 0) {
-        this.error = "Paste one URL or path+URL per line.";
+        this.error = "Paste one URL per line.";
         return;
       }
 
       let addedBookmarks = 0;
-      let createdFolders = 0;
       let skippedLines = 0;
       this.recordAction("Bulk add");
 
       lines.forEach((line) => {
-        const result = this.addItemFromRaw(line, folderId);
+        const result = this.addBulkUrlLine(line, targetFolder);
         if (result.error) {
           skippedLines += 1;
           return;
         }
         if (result.addedBookmarkTitle) {
           addedBookmarks += 1;
-        } else if (result.createdFolder) {
-          createdFolders += 1;
         }
       });
 
-      if (addedBookmarks + createdFolders === 0) {
-        this.error = "No valid lines were added.";
+      if (addedBookmarks === 0) {
+        this.error = "No valid URLs were added.";
         return;
       }
 
@@ -269,11 +304,12 @@ namespace BookmarkCowboy {
       this.bumpTreeVersion();
       this.sortAllBookmarksIfEnabled();
       this.enforceDuplicatePolicy();
+      this.handleSuccessfulWelcomeTransition(startedFromWelcome);
       this.showBulkAddModal = false;
       this.bulkAddInput = "";
-      this.message = `Bulk add complete: ${addedBookmarks} bookmarks, ${createdFolders} folders.`;
+      this.message = `Bulk add complete: ${addedBookmarks} bookmarks.`;
       if (skippedLines > 0) {
-        this.error = `Skipped ${skippedLines} invalid line(s).`;
+        this.error = `Skipped ${skippedLines} invalid URL line(s).`;
       }
     }
 
@@ -307,6 +343,7 @@ namespace BookmarkCowboy {
 
     public submitWelcomeAdd(): void {
       this.clearStatus();
+      const startedFromWelcome = this.shouldShowWelcomeOverlay();
       const raw = this.welcomeAddInput.trim();
       if (!raw) {
         this.error = "Enter a URL or folder path.";
@@ -324,13 +361,16 @@ namespace BookmarkCowboy {
       this.bumpTreeVersion();
       this.sortAllBookmarksIfEnabled();
       this.enforceDuplicatePolicy();
+      this.handleSuccessfulWelcomeTransition(startedFromWelcome);
       if (result.addedBookmarkTitle) {
         this.message = `Added bookmark ${result.addedBookmarkTitle}.`;
       } else {
         this.message = "Folder created.";
       }
       this.welcomeAddInput = "";
-      this.focusWelcomeAddInput();
+      if (!startedFromWelcome) {
+        this.focusWelcomeAddInput();
+      }
     }
 
     public startInlineAdd(folderId: number): void {
@@ -539,7 +579,92 @@ namespace BookmarkCowboy {
     }
 
     public shouldShowWelcomeOverlay(): boolean {
-      return !this.hasActiveBookmarks() && this.inlineAddFolderId === null;
+      return !this.welcomeDismissed && !this.hasActiveBookmarks() && this.inlineAddFolderId === null;
+    }
+
+    public shouldShowBookmarkEditor(): boolean {
+      if (!this.selectedEntry || this.selectedEntry.type !== "bookmark") {
+        return false;
+      }
+      return this.bookmarkEditorBookmarkId === this.selectedEntry.id && this.bookmarkIndex.has(this.selectedEntry.id);
+    }
+
+    public isBookmarkEditorDirtyState(): boolean {
+      return this.isBookmarkEditorDirty();
+    }
+
+    public getBookmarkEditorFaviconUrl(): string {
+      const bookmark = this.getBookmarkEditorBookmark();
+      if (!bookmark) {
+        return this.getBookmarkFaviconPlaceholder();
+      }
+      return this.getFaviconUrl(bookmark.url);
+    }
+
+    public getBookmarkEditorFaviconFallbackUrl(): string {
+      const bookmark = this.getBookmarkEditorBookmark();
+      if (!bookmark) {
+        return this.getBookmarkFaviconPlaceholder();
+      }
+      return this.getFaviconFallbackUrl(bookmark.url);
+    }
+
+    public onBookmarkEditorKeydown(event: KeyboardEvent): void {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.submitBookmarkEditor();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.cancelBookmarkEditorEdits();
+      }
+    }
+
+    public onBookmarkEditorFieldBlur(): void {
+      if (!this.isBookmarkEditorDirty()) {
+        return;
+      }
+      this.cancelBookmarkEditorEdits();
+    }
+
+    public submitBookmarkEditor(): void {
+      const bookmark = this.getBookmarkEditorBookmark();
+      if (!bookmark) {
+        return;
+      }
+
+      this.clearStatus();
+      const nextTitle = this.bookmarkEditorTitle.trim();
+      const rawUrl = this.bookmarkEditorUrl.trim();
+      if (!nextTitle) {
+        this.error = "Bookmark title cannot be empty.";
+        this.cancelBookmarkEditorEdits();
+        return;
+      }
+      if (!rawUrl || !this.isLikelyUrl(rawUrl)) {
+        this.error = "Enter a valid URL.";
+        this.cancelBookmarkEditorEdits();
+        return;
+      }
+
+      const normalizedUrl = this.normalizeUrl(rawUrl);
+      this.recordAction("Edit bookmark");
+      bookmark.title = nextTitle;
+      bookmark.url = normalizedUrl;
+      this.syncBookmarkEditorFromBookmark(bookmark);
+      this.bumpTreeVersion();
+      this.sortAllBookmarksIfEnabled();
+      this.enforceDuplicatePolicy();
+      this.message = "Bookmark updated.";
+    }
+
+    public cancelBookmarkEditorEdits(): void {
+      if (this.bookmarkEditorBookmarkId === null) {
+        return;
+      }
+      this.bookmarkEditorTitle = this.bookmarkEditorOriginalTitle;
+      this.bookmarkEditorUrl = this.bookmarkEditorOriginalUrl;
     }
 
     public setSortField(field: SortField): void {
@@ -572,6 +697,7 @@ namespace BookmarkCowboy {
       if (!this.folderIndex.has(folderId)) {
         return;
       }
+      this.clearBookmarkEditor();
       if (folderId === BookmarkController.archiveFolderId) {
         this.activeRootTab = "archive";
         this.selectedFolderId = folderId;
@@ -613,6 +739,7 @@ namespace BookmarkCowboy {
         this.activeRootTab = "all";
         this.columnPathFolderIds = this.buildFolderPath(bookmark.parentFolderId);
       }
+      this.syncBookmarkEditorFromBookmark(bookmark);
     }
 
     public openFinderBookmark(item: FinderColumnItem, event: MouseEvent): void {
@@ -653,6 +780,7 @@ namespace BookmarkCowboy {
         return;
       }
       this.clearStatus();
+      this.clearBookmarkEditor();
       this.activeRootTab = tab;
       if (tab === "archive") {
         const archiveFolder = this.getArchiveFolder();
@@ -964,6 +1092,8 @@ namespace BookmarkCowboy {
       this.draggingFolderId = null;
       this.dropTargetFolderId = null;
       this.dropTargetValid = false;
+      this.dropTargetBookmarkId = null;
+      this.dropTargetBookmarkValid = false;
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", `bookmark:${bookmarkId}`);
@@ -992,6 +1122,8 @@ namespace BookmarkCowboy {
       this.draggingBookmarkId = null;
       this.dropTargetFolderId = null;
       this.dropTargetValid = false;
+      this.dropTargetBookmarkId = null;
+      this.dropTargetBookmarkValid = false;
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", `folder:${folderId}`);
@@ -1004,6 +1136,8 @@ namespace BookmarkCowboy {
       this.dropTargetFolderId = folderId;
       this.dropTargetValid = valid;
       this.hoverFolderId = folderId;
+      this.dropTargetBookmarkId = null;
+      this.dropTargetBookmarkValid = false;
       if (valid) {
         event.preventDefault();
       }
@@ -1020,6 +1154,42 @@ namespace BookmarkCowboy {
 
     public onColumnDrop(folderId: number, event: DragEvent): void {
       this.dropOnFolderTarget(folderId, event);
+    }
+
+    public onBookmarkItemDragOver(bookmarkId: number, event: DragEvent): void {
+      if (this.draggingType !== "bookmark") {
+        return;
+      }
+      this.dropTargetFolderId = null;
+      this.dropTargetValid = false;
+      this.hoverFolderId = null;
+      const valid = this.canDropOnBookmark(bookmarkId);
+      this.dropTargetBookmarkId = bookmarkId;
+      this.dropTargetBookmarkValid = valid;
+      if (valid) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+    }
+
+    public onBookmarkItemDragLeave(bookmarkId: number, event: DragEvent): void {
+      event.stopPropagation();
+      const currentTarget = event.currentTarget as HTMLElement | null;
+      if (currentTarget) {
+        const bounds = currentTarget.getBoundingClientRect();
+        const insideBounds =
+          event.clientX >= bounds.left &&
+          event.clientX <= bounds.right &&
+          event.clientY >= bounds.top &&
+          event.clientY <= bounds.bottom;
+        if (insideBounds) {
+          return;
+        }
+      }
+      if (this.dropTargetBookmarkId === bookmarkId) {
+        this.dropTargetBookmarkId = null;
+        this.dropTargetBookmarkValid = false;
+      }
     }
 
     public onFolderItemDragLeave(folderId: number, event: DragEvent): void {
@@ -1113,6 +1283,19 @@ namespace BookmarkCowboy {
       this.clearDragState();
     }
 
+    public dropOnBookmarkTarget(bookmarkId: number, event: DragEvent): void {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!this.canDropOnBookmark(bookmarkId)) {
+        this.error = "Invalid drop target.";
+        this.clearDragState();
+        return;
+      }
+
+      this.createFolderFromBookmarkDrop(bookmarkId);
+      this.clearDragState();
+    }
+
     public isDropTarget(folderId: number): boolean {
       return this.dropTargetFolderId === folderId;
     }
@@ -1123,6 +1306,14 @@ namespace BookmarkCowboy {
 
     public isDropTargetInvalid(folderId: number): boolean {
       return this.dropTargetFolderId === folderId && !this.dropTargetValid;
+    }
+
+    public isBookmarkCombineTargetValid(bookmarkId: number): boolean {
+      return this.dropTargetBookmarkId === bookmarkId && this.dropTargetBookmarkValid;
+    }
+
+    public isBookmarkCombineTargetInvalid(bookmarkId: number): boolean {
+      return this.dropTargetBookmarkId === bookmarkId && !this.dropTargetBookmarkValid;
     }
 
     public renameSelectedFolder(): void {
@@ -1575,6 +1766,132 @@ namespace BookmarkCowboy {
       input?.select();
     }
 
+    private setupThemeSystemListener(): void {
+      if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+        return;
+      }
+      this.themeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      if (typeof this.themeMediaQuery.addEventListener === "function") {
+        this.themeMediaQuery.addEventListener("change", this.themeMediaChangeHandler);
+      } else if (typeof this.themeMediaQuery.addListener === "function") {
+        this.themeMediaQuery.addListener(this.themeMediaChangeHandler);
+      }
+    }
+
+    private teardownThemeSystemListener(): void {
+      if (!this.themeMediaQuery) {
+        return;
+      }
+      if (typeof this.themeMediaQuery.removeEventListener === "function") {
+        this.themeMediaQuery.removeEventListener("change", this.themeMediaChangeHandler);
+      } else if (typeof this.themeMediaQuery.removeListener === "function") {
+        this.themeMediaQuery.removeListener(this.themeMediaChangeHandler);
+      }
+    }
+
+    private onSystemThemeChanged(): void {
+      if (this.themeMode !== "auto") {
+        return;
+      }
+      this.applyThemeMode();
+      this.$scope.$applyAsync();
+    }
+
+    private prefersDarkTheme(): boolean {
+      if (!this.themeMediaQuery) {
+        return false;
+      }
+      return this.themeMediaQuery.matches;
+    }
+
+    private applyThemeMode(): void {
+      const shouldUseDark = this.themeMode === "dark" || (this.themeMode === "auto" && this.prefersDarkTheme());
+      this.darkThemeEnabled = shouldUseDark;
+      const documentNode = this.$document[0] as Document;
+      documentNode.body.classList.toggle("theme-dark", shouldUseDark);
+      documentNode.body.setAttribute("data-theme-mode", this.themeMode);
+    }
+
+    private loadThemeMode(): ThemeMode {
+      try {
+        const raw = localStorage.getItem(BookmarkController.themeModeStorageKey);
+        if (raw === "light" || raw === "dark" || raw === "auto") {
+          return raw;
+        }
+      } catch (error) {
+        console.warn("[theme] failed to load mode", error);
+      }
+      return "auto";
+    }
+
+    private persistThemeMode(mode: ThemeMode): void {
+      try {
+        localStorage.setItem(BookmarkController.themeModeStorageKey, mode);
+      } catch (error) {
+        console.warn("[theme] failed to persist mode", error);
+      }
+    }
+
+    private getBookmarkEditorBookmark(): BookmarkItem | null {
+      if (this.bookmarkEditorBookmarkId === null) {
+        return null;
+      }
+      return this.bookmarkIndex.get(this.bookmarkEditorBookmarkId) ?? null;
+    }
+
+    private isBookmarkEditorDirty(): boolean {
+      return (
+        this.bookmarkEditorBookmarkId !== null &&
+        (this.bookmarkEditorTitle !== this.bookmarkEditorOriginalTitle ||
+          this.bookmarkEditorUrl !== this.bookmarkEditorOriginalUrl)
+      );
+    }
+
+    private syncBookmarkEditorFromBookmark(bookmark: BookmarkItem): void {
+      this.bookmarkEditorBookmarkId = bookmark.id;
+      this.bookmarkEditorOriginalTitle = bookmark.title;
+      this.bookmarkEditorOriginalUrl = bookmark.url;
+      this.bookmarkEditorTitle = bookmark.title;
+      this.bookmarkEditorUrl = bookmark.url;
+    }
+
+    private syncBookmarkEditorFromSelection(): void {
+      if (!this.selectedEntry || this.selectedEntry.type !== "bookmark") {
+        this.clearBookmarkEditor();
+        return;
+      }
+      const bookmark = this.bookmarkIndex.get(this.selectedEntry.id);
+      if (!bookmark) {
+        this.clearBookmarkEditor();
+        return;
+      }
+      this.syncBookmarkEditorFromBookmark(bookmark);
+    }
+
+    private clearBookmarkEditor(): void {
+      this.bookmarkEditorBookmarkId = null;
+      this.bookmarkEditorOriginalTitle = "";
+      this.bookmarkEditorOriginalUrl = "";
+      this.bookmarkEditorTitle = "";
+      this.bookmarkEditorUrl = "";
+    }
+
+    private handleSuccessfulWelcomeTransition(startedFromWelcome: boolean): void {
+      if (!startedFromWelcome) {
+        return;
+      }
+      this.welcomeDismissed = true;
+      this.activeRootTab = "all";
+      this.selectedFolderId = this.rootFolder.id;
+      this.activeColumnId = this.rootFolder.id;
+      this.columnPathFolderIds = [this.rootFolder.id];
+      this.selectedEntry = { type: "folder", id: this.rootFolder.id };
+      this.inlineAddFolderId = null;
+      this.addInput = "";
+      this.invalidateFinderColumnsCache();
+      this.$timeout(() => this.focusSearch(), 0);
+    }
+
     private defaultSettings(): AppSettings {
       return defaultAppSettings();
     }
@@ -1630,6 +1947,21 @@ namespace BookmarkCowboy {
 
       this.ensureFolderPath(raw, selectedFolder.id);
       return { createdFolder: true };
+    }
+
+    private addBulkUrlLine(rawLine: string, parentFolder: FolderItem): {
+      addedBookmarkTitle?: string;
+      error?: string;
+    } {
+      const value = rawLine.trim();
+      if (!value || !this.isLikelyUrl(value)) {
+        return { error: "Invalid URL" };
+      }
+
+      const url = this.normalizeUrl(value);
+      const title = this.domainFromUrl(url) || url;
+      this.createBookmark(parentFolder, title, url);
+      return { addedBookmarkTitle: title };
     }
 
     private normalizeShortcutKey(value: string): string {
@@ -1818,6 +2150,7 @@ namespace BookmarkCowboy {
       this.invalidateFolderSummaries();
       this.bumpTreeVersion();
       this.reconcileColumnStateAfterMutation();
+      this.syncBookmarkEditorFromSelection();
     }
 
     private cloneFolderTree(folder: FolderItem): FolderItem {
@@ -2022,6 +2355,34 @@ namespace BookmarkCowboy {
       });
     }
 
+    private canDropOnBookmark(targetBookmarkId: number): boolean {
+      if (this.draggingType !== "bookmark") {
+        return false;
+      }
+      if (this.draggingBookmarkIds.length === 0) {
+        return false;
+      }
+
+      const targetBookmark = this.bookmarkIndex.get(targetBookmarkId);
+      if (!targetBookmark) {
+        return false;
+      }
+      if (targetBookmark.parentFolderId === BookmarkController.archiveFolderId) {
+        return false;
+      }
+      if (this.draggingBookmarkIds.includes(targetBookmarkId)) {
+        return false;
+      }
+
+      return this.draggingBookmarkIds.every((bookmarkId) => {
+        const bookmark = this.bookmarkIndex.get(bookmarkId);
+        if (!bookmark) {
+          return false;
+        }
+        return bookmark.parentFolderId !== BookmarkController.archiveFolderId;
+      });
+    }
+
     private isFolderDescendant(folderId: number, candidateDescendantId: number): boolean {
       let current: FolderItem | null = this.folderIndex.get(candidateDescendantId) ?? null;
       while (current) {
@@ -2041,6 +2402,8 @@ namespace BookmarkCowboy {
       this.draggingFolderIds = [];
       this.dropTargetFolderId = null;
       this.dropTargetValid = false;
+      this.dropTargetBookmarkId = null;
+      this.dropTargetBookmarkValid = false;
       this.hoverFolderId = null;
     }
 
@@ -2300,12 +2663,14 @@ namespace BookmarkCowboy {
       return this.folderIndex.get(this.selectedFolderId) ?? this.rootFolder;
     }
 
-    private ensureFolderPath(path: string, parentFolderId: number): FolderItem {
+    private ensureFolderPath(path: string | string[], parentFolderId: number): FolderItem {
       const parent = this.folderIndex.get(parentFolderId) ?? this.rootFolder;
-      const segments = path
-        .split("/")
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0);
+      const segments = Array.isArray(path)
+        ? path.map((part) => part.trim()).filter((part) => part.length > 0)
+        : path
+            .split("/")
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0);
 
       let current = parent;
       segments.forEach((segment) => {
@@ -2468,6 +2833,30 @@ namespace BookmarkCowboy {
       return formatUrlForDisplay(rawUrl);
     }
 
+    public getDisplayUrlHost(displayUrl: string): string {
+      const trimmed = (displayUrl || "").trim();
+      if (!trimmed) {
+        return "";
+      }
+      const slashIndex = trimmed.indexOf("/");
+      if (slashIndex < 0) {
+        return trimmed;
+      }
+      return trimmed.slice(0, slashIndex);
+    }
+
+    public getDisplayUrlRemainder(displayUrl: string): string {
+      const trimmed = (displayUrl || "").trim();
+      if (!trimmed) {
+        return "";
+      }
+      const slashIndex = trimmed.indexOf("/");
+      if (slashIndex < 0) {
+        return "";
+      }
+      return trimmed.slice(slashIndex);
+    }
+
     private domainFromUrl(rawUrl: string): string {
       return domainFromUrl(rawUrl);
     }
@@ -2517,6 +2906,81 @@ namespace BookmarkCowboy {
             ? `Moved bookmark to ${targetFolder.name}.`
             : `Moved ${bookmarkIds.length} bookmarks to ${targetFolder.name}.`;
       }
+    }
+
+    private createFolderFromBookmarkDrop(targetBookmarkId: number): void {
+      const targetBookmark = this.bookmarkIndex.get(targetBookmarkId);
+      if (!targetBookmark) {
+        this.error = "Target bookmark not found.";
+        return;
+      }
+      const parentFolder = this.folderIndex.get(targetBookmark.parentFolderId);
+      if (!parentFolder) {
+        this.error = "Target parent folder not found.";
+        return;
+      }
+      if (parentFolder.id === BookmarkController.archiveFolderId) {
+        this.error = "Cannot create folders in Archive.";
+        return;
+      }
+
+      const bookmarkIds = Array.from(new Set([...this.draggingBookmarkIds, targetBookmarkId]))
+        .filter((bookmarkId) => bookmarkId !== targetBookmarkId || !this.draggingBookmarkIds.includes(targetBookmarkId))
+        .filter((bookmarkId) => this.bookmarkIndex.has(bookmarkId));
+
+      if (bookmarkIds.length < 2) {
+        this.error = "Drop on a different bookmark to create a folder.";
+        return;
+      }
+
+      this.recordAction(bookmarkIds.length === 2 ? "Create folder from 2 bookmarks" : "Create folder from bookmarks");
+      const folderName = this.getNextAutoFolderName(parentFolder);
+      const createdFolder: FolderItem = {
+        id: this.nextFolderId++,
+        name: folderName,
+        parentFolderId: parentFolder.id,
+        folders: [],
+        bookmarks: []
+      };
+      parentFolder.folders.push(createdFolder);
+      this.folderIndex.set(createdFolder.id, createdFolder);
+
+      bookmarkIds.forEach((bookmarkId) => {
+        this.moveBookmarkToFolder(bookmarkId, createdFolder.id);
+      });
+
+      this.invalidateFolderSummaries();
+      this.bumpTreeVersion();
+      this.enforceDuplicatePolicy();
+      this.selectFolder(createdFolder.id);
+      this.selectedItemKeys.clear();
+      this.selectedItemKeys.add(this.itemKey("folder", createdFolder.id));
+      this.selectionAnchor = null;
+      this.message = `Created ${createdFolder.name} with ${bookmarkIds.length} bookmarks.`;
+    }
+
+    private getNextAutoFolderName(parentFolder: FolderItem): string {
+      let maxOrdinal = 0;
+      const existingNames = new Set(parentFolder.folders.map((folder) => folder.name.toLowerCase()));
+
+      parentFolder.folders.forEach((folder) => {
+        const match = /^Folder\s+(\d+)$/.exec(folder.name);
+        if (!match) {
+          return;
+        }
+        const ordinal = Number(match[1]);
+        if (Number.isFinite(ordinal) && ordinal > maxOrdinal) {
+          maxOrdinal = ordinal;
+        }
+      });
+
+      let candidateOrdinal = Math.max(1, maxOrdinal + 1);
+      let candidate = `Folder ${candidateOrdinal}`;
+      while (existingNames.has(candidate.toLowerCase())) {
+        candidateOrdinal += 1;
+        candidate = `Folder ${candidateOrdinal}`;
+      }
+      return candidate;
     }
 
     private moveFolderToFolder(folderId: number, targetFolderId: number): void {
@@ -2639,6 +3103,9 @@ namespace BookmarkCowboy {
       }
       this.bookmarkIndex.delete(bookmarkId);
       this.selectedItemKeys.delete(this.itemKey("bookmark", bookmarkId));
+      if (this.bookmarkEditorBookmarkId === bookmarkId) {
+        this.clearBookmarkEditor();
+      }
     }
 
     private removeFolder(folderId: number): void {

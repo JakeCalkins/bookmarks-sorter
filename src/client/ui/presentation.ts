@@ -14,14 +14,8 @@ namespace BookmarkCowboy {
   }
 
   export function formatFolderDirectSummary(folder: FolderItem): string {
-    const folderCount = folder.folders.length;
     const bookmarkCount = folder.bookmarks.length;
-    if (folderCount === 0 && bookmarkCount === 0) {
-      return "empty";
-    }
-
-    const folderLabel = `${folderCount} folder${folderCount === 1 ? "" : "s"}`;
     const bookmarkLabel = `${bookmarkCount} bookmark${bookmarkCount === 1 ? "" : "s"}`;
-    return `${folderLabel}, ${bookmarkLabel}`;
+    return bookmarkLabel;
   }
 }
