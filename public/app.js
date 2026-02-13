@@ -1071,14 +1071,16 @@ var BookmarkCowboy;
             if (!column || itemIndex < 0) {
                 return;
             }
+            const targetItem = column.items[itemIndex];
+            if (!targetItem) {
+                return;
+            }
             const anchor = this.selectionAnchor;
             if (!anchor || anchor.columnIndex !== columnIndex) {
                 this.selectedItemKeys.clear();
-                const item = column.items[itemIndex];
-                if (item) {
-                    this.selectedItemKeys.add(this.itemKey(item.type, item.id));
-                }
+                this.selectedItemKeys.add(this.itemKey(targetItem.type, targetItem.id));
                 this.selectionAnchor = { columnIndex, itemIndex };
+                this.selectedEntry = { type: targetItem.type, id: targetItem.id };
                 return;
             }
             const start = Math.min(anchor.itemIndex, itemIndex);
@@ -1091,6 +1093,7 @@ var BookmarkCowboy;
                 }
                 this.selectedItemKeys.add(this.itemKey(item.type, item.id));
             }
+            this.selectedEntry = { type: targetItem.type, id: targetItem.id };
         }
         findItemIndexInColumn(columnIndex, item) {
             const column = this.getFinderColumns()[columnIndex];
@@ -1620,17 +1623,13 @@ var BookmarkCowboy;
                 return;
             }
             if (event.key === "ArrowRight") {
-                const handled = this.navigateIntoSelectedFolder();
-                if (handled) {
-                    event.preventDefault();
-                }
+                event.preventDefault();
+                this.$scope.$applyAsync(() => this.navigateIntoSelectedFolder());
                 return;
             }
             if (event.key === "ArrowLeft") {
-                const handled = this.navigateUpFromSelectedFolder();
-                if (handled) {
-                    event.preventDefault();
-                }
+                event.preventDefault();
+                this.$scope.$applyAsync(() => this.navigateUpFromSelectedFolder());
                 return;
             }
             const key = event.key.toLowerCase();
@@ -1683,18 +1682,55 @@ var BookmarkCowboy;
             this.selectSingleItem(current.columnIndex, nextItem, nextIndex);
         }
         navigateIntoSelectedFolder() {
-            const current = this.getKeyboardSelectionLocation();
-            if (!current || current.item.type !== "folder") {
+            var _a;
+            let folderId = null;
+            if (this.selectedItemKeys.size === 1) {
+                const selectedFolderIds = this.getSelectedFolderIds();
+                if (selectedFolderIds.length === 1) {
+                    folderId = selectedFolderIds[0];
+                }
+            }
+            if (folderId === null && ((_a = this.selectedEntry) === null || _a === void 0 ? void 0 : _a.type) === "folder") {
+                folderId = this.selectedEntry.id;
+            }
+            if (folderId === null) {
+                const current = this.getKeyboardSelectionLocation();
+                if ((current === null || current === void 0 ? void 0 : current.item.type) === "folder") {
+                    folderId = current.item.id;
+                }
+            }
+            if (folderId === null) {
                 return false;
             }
-            this.selectFolder(current.item.id);
+            const folder = this.folderIndex.get(folderId);
+            if (!folder) {
+                return false;
+            }
+            this.selectFolder(folder.id);
             return true;
         }
         navigateUpFromSelectedFolder() {
-            if (!this.selectedEntry || this.selectedEntry.type !== "folder") {
+            var _a, _b;
+            let currentFolderId = null;
+            if (((_a = this.selectedEntry) === null || _a === void 0 ? void 0 : _a.type) === "bookmark") {
+                const bookmark = this.bookmarkIndex.get(this.selectedEntry.id);
+                if (bookmark) {
+                    currentFolderId = bookmark.parentFolderId;
+                }
+            }
+            else if (((_b = this.selectedEntry) === null || _b === void 0 ? void 0 : _b.type) === "folder") {
+                currentFolderId = this.selectedEntry.id;
+            }
+            else if (this.folderIndex.has(this.selectedFolderId)) {
+                currentFolderId = this.selectedFolderId;
+            }
+            else if (this.folderIndex.has(this.activeColumnId)) {
+                currentFolderId = this.activeColumnId;
+            }
+            if (currentFolderId === null) {
                 return false;
             }
-            const currentFolder = this.folderIndex.get(this.selectedEntry.id);
+            const currentFolder = this.folderIndex.get(currentFolderId);
             if (!currentFolder || currentFolder.parentFolderId === null) {
                 return false;
             }
@@ -1705,18 +1741,6 @@ var BookmarkCowboy;
             const columns = this.getFinderColumns();
             if (columns.length === 0) {
                 return null;
-            }
-            if (this.selectionAnchor) {
-                const anchorColumn = columns[this.selectionAnchor.columnIndex];
-                const anchorItem = anchorColumn === null || anchorColumn === void 0 ? void 0 : anchorColumn.items[this.selectionAnchor.itemIndex];
-                if (anchorColumn && anchorItem) {
-                    return {
-                        columnIndex: this.selectionAnchor.columnIndex,
-                        itemIndex: this.selectionAnchor.itemIndex,
-                        item: anchorItem,
-                        column: anchorColumn
-                    };
-                }
             }
             if (this.selectedEntry) {
                 for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
@@ -1730,6 +1754,18 @@ var BookmarkCowboy;
                             column
                         };
                     }
+                }
+            }
+            if (this.selectionAnchor) {
+                const anchorColumn = columns[this.selectionAnchor.columnIndex];
+                const anchorItem = anchorColumn === null || anchorColumn === void 0 ? void 0 : anchorColumn.items[this.selectionAnchor.itemIndex];
+                if (anchorColumn && anchorItem) {
+                    return {
+                        columnIndex: this.selectionAnchor.columnIndex,
+                        itemIndex: this.selectionAnchor.itemIndex,
+                        item: anchorItem,
+                        column: anchorColumn
+                    };
                 }
             }
             const activeColumnIndex = columns.findIndex((column) => column.id === this.activeColumnId);
