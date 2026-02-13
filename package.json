@@ -1,0 +1,25 @@
+{
+  "name": "bookmarks-sorter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal local bookmark sorting tool",
+  "scripts": {
+    "build:client": "tsc -p tsconfig.client.json",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:app": "npm run build:client && npm run build:server",
+    "test": "npm run build:app && node --test tests/health.test.mjs",
+    "build": "npm run build:app && node --test tests/health.test.mjs",
+    "start": "npm run build:app && node dist/server.js",
+    "dev": "npm run build:app && node dist/server.js"
+  },
+  "dependencies": {
+    "angular": "^1.8.3",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/angular": "^1.8.9",
+    "@types/express": "^4.17.23",
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3"
+  }
+}

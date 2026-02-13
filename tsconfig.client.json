@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "none",
+    "outFile": "public/app.js",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["angular"],
+    "lib": ["ES2019", "DOM"]
+  },
+  "include": ["src/client/**/*.ts"]
+}

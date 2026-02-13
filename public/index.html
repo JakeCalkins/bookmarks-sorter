@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en" ng-app="bookmarkApp">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bookmark Cowboy</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body ng-controller="BookmarkController as vm">
+    <header class="navbar">
+      <div class="navbar-inner">
+        <div class="nav-left">
+          <button
+            type="button"
+            class="action-btn btn-bulk-add"
+            ng-click="vm.openBulkAddModal()"
+            title="Bulk add ({{ vm.getShortcutLabel(vm.settings.shortcuts.bulkAdd) }})">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-plus"></use></svg>
+            <span>Bulk Add <span class="shortcut-hint">({{ vm.getShortcutLabel(vm.settings.shortcuts.bulkAdd) }})</span></span>
+          </button>
+        </div>
+
+        <div class="search-wrap">
+          <input
+            id="search-input"
+            type="text"
+            ng-model="vm.searchQuery"
+            placeholder="Search folders, titles, URLs, domains ({{ vm.getShortcutLabel(vm.settings.shortcuts.search) }})"
+            title="Focus search ({{ vm.getShortcutLabel(vm.settings.shortcuts.search) }})" />
+        </div>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="action-btn btn-import"
+            ng-click="vm.openImportPicker()"
+            title="Import file ({{ vm.getShortcutLabel(vm.settings.shortcuts.import) }})">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-import"></use></svg>
+            <span>Import File <span class="shortcut-hint">({{ vm.getShortcutLabel(vm.settings.shortcuts.import) }})</span></span>
+          </button>
+          <button
+            type="button"
+            class="action-btn btn-export"
+            ng-click="vm.exportBookmarks()"
+            title="Export file ({{ vm.getShortcutLabel(vm.settings.shortcuts.export) }})">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-export"></use></svg>
+            <span>Export File <span class="shortcut-hint">({{ vm.getShortcutLabel(vm.settings.shortcuts.export) }})</span></span>
+          </button>
+          <span class="actions-divider" aria-hidden="true"></span>
+          <button type="button" class="action-btn btn-preferences" ng-click="vm.openSettingsModal()" title="Open preferences" aria-label="Preferences">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-settings"></use></svg>
+          </button>
+        </div>
+      </div>
+
+      <input id="import-input" type="file" accept=".html,text/html" file-change="vm.importFile($files)" hidden />
+    </header>
+
+    <section class="workspace-toolbar" ng-if="!vm.shouldShowWelcomeOverlay()">
+      <div class="workspace-toolbar-inner">
+        <div class="view-cluster">
+          <div class="root-tabs root-tabs-segmented">
+            <button
+              type="button"
+              class="root-tab"
+              ng-class="{ active: vm.activeRootTab === 'all' }"
+              ng-click="vm.switchRootTab('all')">
+              All Bookmarks
+            </button>
+            <button
+              type="button"
+              class="root-tab"
+              ng-class="{ active: vm.activeRootTab === 'archive' }"
+              ng-click="vm.switchRootTab('archive')">
+              Archive
+            </button>
+          </div>
+        </div>
+        <div class="workspace-summary-card">
+          <span ng-if="vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">Loading counts...</span>
+          <span ng-if="!vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">{{ vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).bookmarkCount }} bookmarks</span>
+        </div>
+        <div class="utility-cluster">
+          <button
+            type="button"
+            class="quick-toggle-btn"
+            ng-class="{ active: vm.settings.autoSortEnabled, inactive: !vm.settings.autoSortEnabled }"
+            ng-click="vm.settings.autoSortEnabled = !vm.settings.autoSortEnabled; vm.applyQuickPreferenceToggles()"
+            title="Auto-sort on add/import/move">
+            <span class="quick-toggle-box" aria-hidden="true"></span>
+            <span>Auto-sort</span>
+          </button>
+          <button
+            type="button"
+            class="quick-toggle-btn"
+            ng-class="{ active: vm.settings.duplicateAutoDeleteEnabled, inactive: !vm.settings.duplicateAutoDeleteEnabled }"
+            ng-click="vm.settings.duplicateAutoDeleteEnabled = !vm.settings.duplicateAutoDeleteEnabled; vm.applyQuickPreferenceToggles()"
+            title="Automatically archive duplicate bookmarks">
+            <span class="quick-toggle-box" aria-hidden="true"></span>
+            <span>Deduplicate</span>
+          </button>
+          <div class="sort-segmented" role="group" aria-label="Sort bookmarks">
+            <span class="sort-prefix">Sort by</span>
+            <button
+              type="button"
+              class="sort-option"
+              ng-class="{ active: vm.sortField === 'title' }"
+              ng-click="vm.setSortField('title')">
+              Title
+            </button>
+            <button
+              type="button"
+              class="sort-option"
+              ng-class="{ active: vm.sortField === 'url' }"
+              ng-click="vm.setSortField('url')">
+              URL
+            </button>
+          </div>
+          <button
+            type="button"
+            class="quick-mode-toggle"
+            ng-click="vm.toggleTheme()"
+            title="Toggle theme mode">
+            {{ vm.darkThemeEnabled ? 'Light Mode' : 'Dark Mode' }}
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="welcome-overlay" ng-if="vm.shouldShowWelcomeOverlay()">
+      <div class="welcome-card">
+        <h1>Bookmark Cowboy</h1>
+        <h3>Wrangle, herd and build your bookmarks!</h3>
+        <p><strong>Import, clean up, and organize your bookmarks</strong> locally with a fast column-based workflow. Allows for easy export to HTML to import into any Chromium, Gecko or WebKit based browser.</p>
+        <div class="welcome-actions">
+          <button type="button" class="action-btn btn-preferences" ng-click="vm.openSettingsModal()">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-settings"></use></svg>
+            <span>Preferences</span>
+          </button>
+          <button type="button" class="action-btn btn-bulk-add" ng-click="vm.openBulkAddModal()">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-plus"></use></svg>
+            <span>Bulk Add</span>
+          </button>
+          <button type="button" class="action-btn btn-import" ng-click="vm.openImportPicker()">
+            <svg viewBox="0 0 24 24" class="action-icon" aria-hidden="true"><use href="/tabler-sprite.svg#tabler-import"></use></svg>
+            <span>Import FIle</span>
+          </button>
+        </div>
+        <div class="welcome-inline-add row finder-item add-row add-row-inline">
+          <input
+            id="welcome-add-input"
+            class="inline-add-input"
+            type="text"
+            ng-model="vm.welcomeAddInput"
+            placeholder="Add new item..."
+            ng-keydown="vm.onWelcomeAddKeydown($event)" />
+          <button
+            type="button"
+            class="add-action"
+            ng-click="vm.submitWelcomeAdd(); $event.stopPropagation()"
+            aria-label="Add item">
+            <svg viewBox="0 0 24 24" class="plus-svg" aria-hidden="true">
+              <use href="/tabler-sprite.svg#tabler-plus"></use>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <main class="workspace" ng-if="!vm.shouldShowWelcomeOverlay()">
+      <section class="finder">
+        <div class="finder-column-group" ng-repeat="column in vm.getFinderColumns() track by column.id">
+          <div
+            class="finder-column"
+            ng-mousedown="vm.setActiveColumn(column.id)"
+            ng-style="{ width: vm.getColumnWidth(column.id) + 'px', 'min-width': vm.getColumnWidth(column.id) + 'px' }"
+            ng-class="{ 'drop-valid': vm.isDropTargetValid(column.id), 'drop-invalid': vm.isDropTargetInvalid(column.id) }"
+            drag-over="vm.onColumnDragOver(column.id, $event)"
+            drag-leave="vm.onFolderTargetDragLeave(column.id, $event)"
+            drop-handler="vm.onColumnDrop(column.id, $event)">
+            <div class="finder-column-content">
+              <div class="finder-column-header">
+                <h2 ng-if="$index === 0 && vm.activeRootTab === 'all'">All Bookmarks</h2>
+                <h2 ng-if="$index !== 0">{{ column.title }}</h2>
+                <div
+                  class="row finder-item add-row"
+                  ng-if="vm.activeRootTab !== 'archive' && vm.inlineAddFolderId !== column.id"
+                  ng-click="vm.openAddModalForFolder(column.id)">
+                  <span class="add-field">Add new item...</span>
+                  <button
+                    type="button"
+                    class="add-action"
+                    ng-click="vm.openAddModalForFolder(column.id); $event.stopPropagation()"
+                    aria-label="Add new item">
+                    <svg viewBox="0 0 24 24" class="plus-svg" aria-hidden="true">
+                      <use href="/tabler-sprite.svg#tabler-plus"></use>
+                    </svg>
+                  </button>
+                </div>
+                <div class="row finder-item add-row add-row-inline" ng-if="vm.activeRootTab !== 'archive' && vm.inlineAddFolderId === column.id">
+                  <input
+                    id="inline-add-input-{{ column.id }}"
+                    class="inline-add-input"
+                    type="text"
+                    ng-model="vm.addInput"
+                    placeholder="Add new item..."
+                    ng-keydown="vm.onAddInputKeydown($event)" />
+                  <button
+                    type="button"
+                    class="add-action"
+                    ng-click="vm.submitInlineAdd(); $event.stopPropagation()"
+                    aria-label="Add item">
+                    <svg viewBox="0 0 24 24" class="plus-svg" aria-hidden="true">
+                      <use href="/tabler-sprite.svg#tabler-plus"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="finder-column-list">
+              <div
+                class="row finder-item"
+                ng-repeat="item in column.items track by item.type + '-' + item.id"
+                ng-class="{
+                  selected: vm.isFinderItemSelected($parent.$index, item),
+                  folder: item.type === 'folder',
+                  'archive-row': item.type === 'folder' && item.id === -1,
+                  'folder-hover-target': item.type === 'folder' && vm.isFolderHoverTarget(item.id),
+                  'drop-valid': item.type === 'folder' && vm.isDropTargetValid(item.id),
+                  'drop-invalid': item.type === 'folder' && vm.isDropTargetInvalid(item.id)
+                }"
+                ng-click="vm.onFinderItemClick($parent.$index, item, $event)"
+                ng-attr-draggable="{{ item.type === 'folder' || item.type === 'bookmark' ? 'true' : undefined }}"
+                drag-start="item.type === 'bookmark' ? vm.startBookmarkDrag(item.id, $event) : vm.startFolderDrag(item.id, $event)"
+                drag-end="vm.onDragEnd()"
+                drag-over="item.type === 'folder' && vm.onFolderItemDragOver(item.id, $event)"
+                drag-leave="item.type === 'folder' && vm.onFolderItemDragLeave(item.id, $event)"
+                drop-handler="item.type === 'folder' && vm.dropOnFolderTarget(item.id, $event)">
+                <img ng-if="item.type === 'folder'" class="row-folder-icon" src="/icons/folder-tabler.svg" alt="" />
+                <img
+                  ng-if="item.type === 'bookmark'"
+                  class="row-favicon"
+                  ng-src="{{ item.faviconUrl }}"
+                  favicon-fallback="{{ item.faviconFallbackUrl }}"
+                  final-fallback="{{ vm.getBookmarkFaviconPlaceholder() }}"
+                  alt="" />
+                <span class="row-main">
+                  <span class="label" title="{{ item.name }}">{{ item.name }}</span>
+                  <span class="meta" title="{{ item.subtitle }}">{{ item.subtitle }}</span>
+                </span>
+                <button
+                  type="button"
+                  class="row-delete"
+                  ng-click="vm.deleteFinderItem(item, $event)"
+                  title="Delete"
+                  aria-label="Delete">
+                  <svg viewBox="0 0 24 24" class="trash-svg" aria-hidden="true">
+                    <use href="/tabler-sprite.svg#tabler-minus"></use>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="row-open"
+                  ng-if="item.type === 'bookmark'"
+                  ng-click="vm.openFinderBookmark(item, $event)"
+                  title="Open in new tab"
+                  aria-label="Open bookmark">
+                  Open
+                </button>
+              </div>
+              <p
+                class="finder-empty"
+                ng-if="column.items.length === 0">
+                No items in this folder.
+              </p>
+              </div>
+            </div>
+          </div>
+          <div class="column-divider">
+            <div
+              class="column-resize-handle"
+              ng-mousedown="vm.startColumnResize(column.id, $event)"
+              title="Resize column"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <section class="toast-stack" aria-live="polite" aria-atomic="false">
+      <article class="toast-card" ng-repeat="toast in vm.toasts track by toast.id" ng-class="toast.level">
+        <p>{{ toast.text }}</p>
+        <button type="button" class="toast-close" ng-click="vm.dismissToast(toast.id, $event)" aria-label="Close message">×</button>
+      </article>
+    </section>
+
+    <section class="message-center">
+      <button
+        type="button"
+        class="message-center-trigger"
+        ng-class="{ 'has-error': vm.hasErrorStatusMessages() }"
+        ng-click="vm.toggleMessageHistory($event)"
+        aria-label="Status messages">
+        <span class="message-center-icon" aria-hidden="true">!</span>
+        <span class="message-center-label">Status</span>
+      </button>
+      <div class="message-center-panel" ng-if="vm.showMessageHistory">
+        <p class="empty" ng-if="vm.messageHistory.length === 0">No recent messages.</p>
+        <article class="message-center-item" ng-repeat="entry in vm.messageHistory track by entry.id" ng-class="entry.level">
+          {{ entry.text }}
+        </article>
+      </div>
+    </section>
+
+    <div class="modal-backdrop" ng-if="vm.showSettingsModal || vm.showBulkAddModal" ng-click="vm.closeActiveModal()">
+      <div class="modal settings-modal" ng-if="vm.showSettingsModal" ng-click="$event.stopPropagation()">
+        <button type="button" class="modal-close" ng-click="vm.closeSettingsModal()" aria-label="Close settings">×</button>
+        <h3>Preferences</h3>
+
+        <div class="settings-list">
+          <div class="settings-row settings-section-row">
+            <span class="settings-label settings-section-label">Shortcuts</span>
+          </div>
+          <div class="settings-row" ng-repeat="action in ['add','bulkAdd','delete','import','export','search'] track by action">
+            <span class="settings-label">{{ vm.getShortcutActionLabel(action) }}</span>
+            <div class="settings-control settings-control-fixed">
+              <div
+                ng-if="vm.recordingShortcutAction === action"
+                id="shortcut-recorder-{{ action }}"
+                class="shortcut-recorder recording"
+                tabindex="0"
+                ng-keydown="vm.onShortcutRecorderKeydown(action, $event)">
+                <span>{{ vm.recordedShortcutValue ? vm.getShortcutLabel(vm.recordedShortcutValue) : 'Press keys...' }}</span>
+              </div>
+              <div class="shortcut-display" ng-if="vm.recordingShortcutAction !== action">
+                {{ vm.getShortcutLabel(vm.settings.shortcuts[action]) }}
+              </div>
+              <button
+                type="button"
+                class="shortcut-record-btn"
+                ng-if="vm.recordingShortcutAction !== action"
+                ng-click="vm.startShortcutRecording(action)"
+                title="Record shortcut">
+                Record
+              </button>
+              <button
+                type="button"
+                class="shortcut-record-btn"
+                ng-if="vm.recordingShortcutAction === action"
+                ng-click="vm.commitRecordedShortcut(action)"
+                title="Save recorded shortcut (Enter)">
+                Save
+              </button>
+              <button
+                type="button"
+                class="shortcut-record-btn shortcut-cancel-btn"
+                ng-if="vm.recordingShortcutAction === action"
+                ng-click="vm.cancelShortcutRecording()"
+                title="Cancel recording (Escape)">
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-row settings-section-row">
+            <span class="settings-label settings-section-label">Sort</span>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">Folders On:</span>
+            <div class="settings-control settings-control-fixed">
+              <div class="folders-on-toggle" role="group" aria-label="Folders on position">
+                <button
+                  type="button"
+                  class="folders-on-option"
+                  ng-class="{ active: vm.settings.defaultFolderDisplayMode === 'top' }"
+                  ng-click="vm.settings.defaultFolderDisplayMode = 'top'">
+                  Top
+                </button>
+                <button
+                  type="button"
+                  class="folders-on-option"
+                  ng-class="{ active: vm.settings.defaultFolderDisplayMode === 'bottom' }"
+                  ng-click="vm.settings.defaultFolderDisplayMode = 'bottom'">
+                  Bottom
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-row settings-section-row">
+            <span class="settings-label settings-section-label">Export</span>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">Clear Archive (after export):</span>
+            <div class="settings-control settings-control-fixed">
+              <label class="settings-checkbox-label" title="Clear archive automatically after export">
+                <input type="checkbox" ng-model="vm.settings.clearArchiveAfterExport" />
+              </label>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" ng-click="vm.saveSettings()" title="Save settings">Save</button>
+          <button type="button" ng-click="vm.closeSettingsModal()" title="Cancel (Esc)">Cancel</button>
+        </div>
+      </div>
+
+      <div class="modal bulk-add-modal" ng-if="vm.showBulkAddModal" ng-click="$event.stopPropagation()">
+        <h3>Bulk Add</h3>
+        <p>Paste one URL or path+URL per line.</p>
+        <textarea
+          id="bulk-add-input"
+          ng-model="vm.bulkAddInput"
+          placeholder="example.com&#10;work/tools/github.com&#10;reading/blog.example.com"></textarea>
+        <div class="modal-actions">
+          <button type="button" ng-click="vm.submitBulkAdd()" title="Submit bulk add">Add Lines</button>
+          <button type="button" ng-click="vm.closeBulkAddModal()" title="Cancel (Esc)">Cancel</button>
+        </div>
+      </div>
+
+    </div>
+
+    <script src="/vendor/angular/angular.min.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

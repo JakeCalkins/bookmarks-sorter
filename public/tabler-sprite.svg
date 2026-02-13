@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <!--
+    Icons sourced from Lucide (ISC) and Tabler Icons (MIT):
+    https://lucide.dev/
+    https://github.com/tabler/tabler-icons
+  -->
+  <symbol id="tabler-folder" viewBox="0 0 24 24">
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z" />
+  </symbol>
+  <symbol id="tabler-link" viewBox="0 0 24 24">
+    <path d="M9 12H7a5 5 0 0 1 0-10h2" />
+    <path d="M15 12h2a5 5 0 0 1 0 10h-2" />
+    <path d="M8 17h8" />
+  </symbol>
+  <symbol id="tabler-plus" viewBox="0 0 24 24">
+    <path d="M12 5l0 14" />
+    <path d="M5 12l14 0" />
+  </symbol>
+  <symbol id="tabler-minus" viewBox="0 0 24 24">
+    <path d="M5 12l14 0" />
+  </symbol>
+  <symbol id="tabler-settings" viewBox="0 0 24 24">
+    <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.427 1.756 2.925 0 3.352a1.724 1.724 0 0 0-1.066 2.572c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.427 1.756-2.925 1.756-3.352 0a1.724 1.724 0 0 0-2.572-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.427-1.756-2.925 0-3.352A1.724 1.724 0 0 0 5.38 7.753c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066Z" />
+    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+  </symbol>
+  <symbol id="tabler-import" viewBox="0 0 24 24">
+    <path d="M12 3v12" />
+    <path d="m8 11 4 4 4-4" />
+    <path d="M5 21h14" />
+  </symbol>
+  <symbol id="tabler-export" viewBox="0 0 24 24">
+    <path d="M12 21V9" />
+    <path d="m8 13 4-4 4 4" />
+    <path d="M5 3h14" />
+  </symbol>
+  <symbol id="tabler-sun" viewBox="0 0 24 24">
+    <path d="M12 4V2" />
+    <path d="M12 22v-2" />
+    <path d="m17 7 1.4-1.4" />
+    <path d="m5.6 18.4 1.4-1.4" />
+    <path d="M20 12h2" />
+    <path d="M2 12h2" />
+    <path d="m17 17 1.4 1.4" />
+    <path d="M5.6 5.6 7 7" />
+    <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" />
+  </symbol>
+  <symbol id="tabler-moon" viewBox="0 0 24 24">
+    <path d="M12 3a7 7 0 1 0 9 9 9 9 0 1 1-9-9Z" />
+  </symbol>
+</svg>
