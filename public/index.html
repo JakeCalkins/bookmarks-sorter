@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bookmark Cowboy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body ng-controller="BookmarkController as vm">
@@ -86,28 +89,32 @@
           </div>
         </div>
         <div class="workspace-summary-card">
-          <span ng-if="vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">Loading counts...</span>
-          <span ng-if="!vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">{{ vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).bookmarkCount }} bookmarks</span>
+          <span class="workspace-summary-label">Bookmarks</span>
+          <span class="workspace-summary-separator" aria-hidden="true">|</span>
+          <span class="workspace-summary-value" ng-if="vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">...</span>
+          <span class="workspace-summary-value" ng-if="!vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">{{ vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).bookmarkCount }}</span>
         </div>
         <div class="utility-cluster">
-          <button
-            type="button"
-            class="quick-toggle-btn"
-            ng-class="{ active: vm.settings.autoSortEnabled, inactive: !vm.settings.autoSortEnabled }"
-            ng-click="vm.settings.autoSortEnabled = !vm.settings.autoSortEnabled; vm.applyQuickPreferenceToggles()"
-            title="Auto-sort on add/import/move">
-            <span class="quick-toggle-box" aria-hidden="true"></span>
-            <span>Auto-sort</span>
-          </button>
-          <button
-            type="button"
-            class="quick-toggle-btn"
-            ng-class="{ active: vm.settings.duplicateAutoDeleteEnabled, inactive: !vm.settings.duplicateAutoDeleteEnabled }"
-            ng-click="vm.settings.duplicateAutoDeleteEnabled = !vm.settings.duplicateAutoDeleteEnabled; vm.applyQuickPreferenceToggles()"
-            title="Automatically archive duplicate bookmarks">
-            <span class="quick-toggle-box" aria-hidden="true"></span>
-            <span>Deduplicate</span>
-          </button>
+          <div class="quick-toggle-group" role="group" aria-label="Quick preferences">
+            <button
+              type="button"
+              class="quick-toggle-btn"
+              ng-class="{ active: vm.settings.autoSortEnabled, inactive: !vm.settings.autoSortEnabled }"
+              ng-click="vm.settings.autoSortEnabled = !vm.settings.autoSortEnabled; vm.applyQuickPreferenceToggles()"
+              title="Auto-sort on add/import/move">
+              <span class="quick-toggle-box" aria-hidden="true"></span>
+              <span>Auto-sort</span>
+            </button>
+            <button
+              type="button"
+              class="quick-toggle-btn"
+              ng-class="{ active: vm.settings.duplicateAutoDeleteEnabled, inactive: !vm.settings.duplicateAutoDeleteEnabled }"
+              ng-click="vm.settings.duplicateAutoDeleteEnabled = !vm.settings.duplicateAutoDeleteEnabled; vm.applyQuickPreferenceToggles()"
+              title="Automatically archive duplicate bookmarks">
+              <span class="quick-toggle-box" aria-hidden="true"></span>
+              <span>Deduplicate</span>
+            </button>
+          </div>
           <div class="sort-segmented toolbar-sort-control" role="group" aria-label="Sort bookmarks">
             <span class="sort-prefix">Sort by</span>
             <button

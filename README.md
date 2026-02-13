@@ -2,11 +2,6 @@
 
 Local bookmark organizer built with TypeScript, AngularJS, and Node.js.
 
-## Prerequisites
-
-- Node.js 18+
-- npm
-
 ## Run locally
 
 1. Install dependencies:
