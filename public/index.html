@@ -70,31 +70,33 @@
 
     <section class="workspace-toolbar" ng-if="!vm.shouldShowWelcomeOverlay()">
       <div class="workspace-toolbar-inner">
-        <div class="view-cluster">
-          <div class="root-tabs root-tabs-segmented">
-            <button
-              type="button"
-              class="root-tab"
-              ng-class="{ active: vm.activeRootTab === 'all' }"
-              ng-click="vm.switchRootTab('all')">
-              All Bookmarks
-            </button>
-            <button
-              type="button"
-              class="root-tab"
-              ng-class="{ active: vm.activeRootTab === 'archive' }"
-              ng-click="vm.switchRootTab('archive')">
-              Archive
-            </button>
+        <div class="toolbar-group toolbar-group-nav">
+          <div class="view-cluster">
+            <div class="root-tabs root-tabs-segmented">
+              <button
+                type="button"
+                class="root-tab"
+                ng-class="{ active: vm.activeRootTab === 'all' }"
+                ng-click="vm.switchRootTab('all')">
+                All Bookmarks
+              </button>
+              <button
+                type="button"
+                class="root-tab"
+                ng-class="{ active: vm.activeRootTab === 'archive' }"
+                ng-click="vm.switchRootTab('archive')">
+                Archive
+              </button>
+            </div>
+          </div>
+          <div class="workspace-summary-card">
+            <span class="workspace-summary-label">Bookmarks</span>
+            <span class="workspace-summary-separator" aria-hidden="true">|</span>
+            <span class="workspace-summary-value" ng-if="vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">...</span>
+            <span class="workspace-summary-value" ng-if="!vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">{{ vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).bookmarkCount }}</span>
           </div>
         </div>
-        <div class="workspace-summary-card">
-          <span class="workspace-summary-label">Bookmarks</span>
-          <span class="workspace-summary-separator" aria-hidden="true">|</span>
-          <span class="workspace-summary-value" ng-if="vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">...</span>
-          <span class="workspace-summary-value" ng-if="!vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).loading">{{ vm.getFolderSummary(vm.activeRootTab === 'archive' ? -1 : 0).bookmarkCount }}</span>
-        </div>
-        <div class="utility-cluster">
+        <div class="toolbar-group toolbar-group-sort">
           <div class="quick-toggle-group" role="group" aria-label="Quick preferences">
             <button
               type="button"
@@ -132,13 +134,80 @@
               URL
             </button>
           </div>
+        </div>
+        <div class="toolbar-group toolbar-group-theme">
           <div class="theme-segmented toolbar-theme-control" role="group" aria-label="Theme mode">
             <button
               type="button"
               class="theme-option"
               ng-class="{ active: vm.themeMode === 'light' }"
               ng-click="vm.setThemeMode('light')">
-              Light
+              <svg viewBox="0 0 24 24" class="quick-mode-icon" aria-hidden="true">
+                <path
+                  d="M12 4V2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="M12 22v-2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="m17 7 1.4-1.4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="m5.6 18.4 1.4-1.4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="M20 12h2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="M2 12h2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="m17 17 1.4 1.4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="M5.6 5.6 7 7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+                <path
+                  d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"></path>
+              </svg>
+              <span>Light</span>
             </button>
             <button
               type="button"
@@ -222,7 +291,48 @@
             <div class="finder-column-content">
               <div class="finder-column-header">
                 <h2 ng-if="$index === 0 && vm.activeRootTab === 'all'">All Bookmarks</h2>
-                <h2 ng-if="$index !== 0">{{ column.title }}</h2>
+                <h2 ng-if="$index !== 0 && !vm.canRenameFolder(column.id)">{{ column.title }}</h2>
+                <div
+                  class="column-title-field"
+                  ng-if="$index !== 0 && vm.canRenameFolder(column.id) && !vm.isFolderRenameActive(column.id)">
+                  <button
+                    type="button"
+                    class="column-title-trigger"
+                    ng-click="vm.startFolderRename(column.id, $event)"
+                    title="Rename folder"
+                    aria-label="Rename folder">
+                    {{ column.title }}
+                  </button>
+                </div>
+                <div
+                  class="column-title-editor"
+                  ng-if="$index !== 0 && vm.canRenameFolder(column.id) && vm.isFolderRenameActive(column.id)">
+                  <input
+                    id="folder-rename-input-{{ column.id }}"
+                    class="column-title-input"
+                    type="text"
+                    ng-model="vm.folderRenameDraft"
+                    ng-keydown="vm.onFolderRenameInputKeydown(column.id, $event)"
+                    ng-blur="vm.onFolderRenameInputBlur(column.id)" />
+                  <button
+                    type="button"
+                    class="column-title-action column-title-save"
+                    ng-mousedown="$event.preventDefault()"
+                    ng-click="vm.submitFolderRename(column.id, $event)"
+                    title="Save folder name"
+                    aria-label="Save folder name">
+                    ✓
+                  </button>
+                  <button
+                    type="button"
+                    class="column-title-action column-title-cancel"
+                    ng-mousedown="$event.preventDefault()"
+                    ng-click="vm.cancelFolderRename($event)"
+                    title="Cancel rename"
+                    aria-label="Cancel rename">
+                    ×
+                  </button>
+                </div>
                 <div
                   class="row finder-item add-row"
                   ng-if="vm.activeRootTab !== 'archive' && vm.inlineAddFolderId !== column.id"
@@ -304,6 +414,15 @@
                   title="Open in new tab"
                   aria-label="Open bookmark">
                   Open
+                </button>
+                <button
+                  type="button"
+                  class="row-rename"
+                  ng-if="item.type === 'folder' && vm.canRenameFolder(item.id)"
+                  ng-click="vm.startFolderRenameFromRow(item.id, $event)"
+                  title="Rename folder"
+                  aria-label="Rename folder">
+                  Rename
                 </button>
                 <button
                   type="button"

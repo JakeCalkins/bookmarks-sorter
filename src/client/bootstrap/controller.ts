@@ -30,6 +30,8 @@ namespace BookmarkCowboy {
     public folderDisplayMode: FolderDisplayMode = "top";
 
     public renameFolderName = "";
+    public renamingFolderId: number | null = null;
+    public folderRenameDraft = "";
     public createFolderPath = "";
     public columnPathFolderIds: number[] = [0];
     public activeRootTab: RootTab = "all";
@@ -697,6 +699,7 @@ namespace BookmarkCowboy {
       if (!this.folderIndex.has(folderId)) {
         return;
       }
+      this.cancelFolderRename();
       this.clearBookmarkEditor();
       if (folderId === BookmarkController.archiveFolderId) {
         this.activeRootTab = "archive";
@@ -729,6 +732,7 @@ namespace BookmarkCowboy {
       if (!bookmark) {
         return;
       }
+      this.cancelFolderRename();
       this.selectedEntry = { type: "bookmark", id: bookmarkId };
       this.selectedFolderId = bookmark.parentFolderId;
       if (bookmark.parentFolderId === BookmarkController.archiveFolderId) {
@@ -779,6 +783,7 @@ namespace BookmarkCowboy {
       if (this.activeRootTab === tab) {
         return;
       }
+      this.cancelFolderRename();
       this.clearStatus();
       this.clearBookmarkEditor();
       this.activeRootTab = tab;
@@ -1311,6 +1316,121 @@ namespace BookmarkCowboy {
       return this.dropTargetFolderId === folderId && !this.dropTargetValid;
     }
 
+    public canRenameFolder(folderId: number): boolean {
+      return (
+        this.folderIndex.has(folderId) &&
+        folderId !== this.rootFolder.id &&
+        folderId !== BookmarkController.archiveFolderId
+      );
+    }
+
+    public isFolderRenameActive(folderId: number): boolean {
+      return this.renamingFolderId === folderId;
+    }
+
+    public startFolderRename(folderId: number, event?: MouseEvent): void {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      if (!this.canRenameFolder(folderId)) {
+        return;
+      }
+      const folder = this.folderIndex.get(folderId);
+      if (!folder) {
+        return;
+      }
+
+      this.clearStatus();
+      this.renamingFolderId = folderId;
+      this.folderRenameDraft = folder.name;
+      this.focusFolderRenameInput(folderId);
+    }
+
+    public startFolderRenameFromRow(folderId: number, event: MouseEvent): void {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!this.canRenameFolder(folderId)) {
+        return;
+      }
+
+      this.selectFolder(folderId);
+      const folder = this.folderIndex.get(folderId);
+      if (!folder) {
+        return;
+      }
+
+      this.clearStatus();
+      this.renamingFolderId = folderId;
+      this.folderRenameDraft = folder.name;
+      this.focusFolderRenameInput(folderId);
+    }
+
+    public onFolderRenameInputKeydown(folderId: number, event: KeyboardEvent): void {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.submitFolderRename(folderId);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.cancelFolderRename();
+      }
+    }
+
+    public onFolderRenameInputBlur(folderId: number): void {
+      if (this.renamingFolderId !== folderId) {
+        return;
+      }
+      this.cancelFolderRename();
+    }
+
+    public submitFolderRename(folderId: number, event?: MouseEvent): void {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      if (this.renamingFolderId !== folderId) {
+        return;
+      }
+
+      const folder = this.folderIndex.get(folderId);
+      if (!folder || !this.canRenameFolder(folderId)) {
+        this.cancelFolderRename();
+        return;
+      }
+
+      const nextName = this.folderRenameDraft.trim();
+      if (!nextName) {
+        this.error = "Folder name cannot be empty.";
+        return;
+      }
+
+      if (nextName === folder.name) {
+        this.cancelFolderRename();
+        return;
+      }
+
+      this.clearStatus();
+      this.recordAction("Rename folder");
+      folder.name = nextName;
+      if (this.selectedEntry?.type === "folder" && this.selectedEntry.id === folder.id) {
+        this.renameFolderName = nextName;
+      }
+      this.cancelFolderRename();
+      this.bumpTreeVersion();
+      this.message = "Folder renamed.";
+    }
+
+    public cancelFolderRename(event?: Event): void {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      this.renamingFolderId = null;
+      this.folderRenameDraft = "";
+    }
+
     public isBookmarkCombineTargetValid(bookmarkId: number): boolean {
       return this.dropTargetBookmarkId === bookmarkId && this.dropTargetBookmarkValid;
     }
@@ -1334,15 +1454,9 @@ namespace BookmarkCowboy {
         this.error = "Root folder cannot be renamed.";
         return;
       }
-      const nextName = this.renameFolderName.trim();
-      if (!nextName) {
-        this.error = "Folder name cannot be empty.";
-        return;
-      }
-      this.recordAction("Rename folder");
-      folder.name = nextName;
-      this.bumpTreeVersion();
-      this.message = "Folder renamed.";
+      this.renamingFolderId = folder.id;
+      this.folderRenameDraft = this.renameFolderName;
+      this.submitFolderRename(folder.id);
     }
 
     public addFolderFromManager(): void {
@@ -2334,6 +2448,15 @@ namespace BookmarkCowboy {
       }, 0);
     }
 
+    private focusFolderRenameInput(folderId: number): void {
+      this.$timeout(() => {
+        const documentNode = this.$document[0] as unknown as Document;
+        const input = documentNode.getElementById(`folder-rename-input-${folderId}`) as HTMLInputElement | null;
+        input?.focus();
+        input?.select();
+      }, 0);
+    }
+
     private focusWelcomeAddInput(): void {
       this.$timeout(() => {
         const documentNode = this.$document[0] as unknown as Document;
@@ -3154,6 +3277,9 @@ namespace BookmarkCowboy {
       const folder = this.folderIndex.get(folderId);
       if (!folder) {
         return;
+      }
+      if (this.renamingFolderId === folder.id) {
+        this.cancelFolderRename();
       }
 
       folder.bookmarks.forEach((bookmark) => {
